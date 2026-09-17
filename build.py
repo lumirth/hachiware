@@ -43,6 +43,21 @@ def handler(image: bytes, vector: int, code: str) -> bytes:
 
 
 def cases():
+    for name,enable,expected,timeline in [
+        ('sensor-low-g',1,'0a00','0,accel,0,0,0\n'),
+        ('sensor-high-g',2,'0500',None),
+    ]:
+        p=Program()
+        for a,v in [(0xfffb,0x14),(0xf0e0,0x8c),(0xf0e1,0x40),(0xf0e2,0x86),
+                    (0xf0e3,0xc0),(0xffe4,7),(0xffd4,5),(0xf087,8),(0xffec,1),(0xffdc,1)]:
+            p.byte(a,v)
+        for a,v in [(0x0b,enable),(0x0c,32),(0x0d,0),(0x0e,32),(0x0f,0)]:
+            p.byte(0xffdc,0);p.send(a);p.send(v);p.byte(0xffdc,1)
+        p.code += bytes(20000)
+        for slot in range(2):
+            p.byte(0xffdc,0);p.send(0x89);p.send(0);p.code += bytes((0x6a,0x88,0xf8,slot));p.byte(0xffdc,1)
+            p.byte(0xffdc,0);p.send(0x0a);p.send(0x40);p.byte(0xffdc,1)
+        yield name,p.finish(),{'ram':{'f800':expected}},timeline
     for name,reg14,offset,expected,timeline in [
         ('sensor-factory-defaults',None,None,{'f800':'031496a0960000a20d0e80'},None),
         ('sensor-offset-2g',6,0x40,{'f800':'014264'},None),
@@ -402,8 +417,8 @@ def cases():
 
 def expectation_metadata(name: str) -> dict:
     if name.startswith('sensor-'):
-        return {'kind':'documented','source':'Bosch BMA150 Rev1.6 register map, §§3.5,4.1; Bosch bma150_calc_new_offset and set_range',
-                'question':'Do serial transfers, defaults, physical temperature, and calibrated offset/range produce their specified observations?'}
+        return {'kind':'documented','source':'Bosch BMA150 Rev1.6 register map, §§3.2,3.5,4.1; Bosch bma150_calc_new_offset and set_range',
+                'question':'Do serial transfers, qualification/status, defaults, temperature, and offset/range produce their specified observations?'}
     if name.startswith('lcd-'):
         return {'kind':'documented','source':'Novatek NT7508 V1.0 pp.15–17,29,34–41,44–46; lumirth/pw DisplayFill for plane order',
                 'question':'Do serial LCD commands preserve physical RAM, map both planes before viewport cropping, and obey display/duty/reset priority?'}
