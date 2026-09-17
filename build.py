@@ -288,8 +288,37 @@ def cases():
     p.code += bytes.fromhex('6a08ffdc6a88f808')
     yield 'ssu-output-level-and-open-drain',p.finish(),{'ram':{'f800':'9c078c038c03bc0307'}},None
 
+    for name in ['eeprom-wel-during-write','eeprom-overlong-status',
+                 'eeprom-power-before-cs','eeprom-reset-during-write']:
+        p=Program()
+        for a,v in [(0xfffb,0x14),(0xf0e0,0x8c),(0xf0e1,0x40),(0xf0e2,0x86),
+                    (0xf0e3,0xc0),(0xffe4,7),(0xffd4,5),(0xf087,8),
+                    (0xffec,1),(0xffdc,1)]:p.byte(a,v)
+        p.byte(0xffd4,1);p.send(6);p.byte(0xffd4,5)
+        p.byte(0xffd4,1)
+        command=[1,0x8c,0] if name=='eeprom-overlong-status' else [2,0,0x20,0xa5]
+        for byte in command:p.send(byte)
+        if name!='eeprom-power-before-cs':p.byte(0xffd4,5)
+        timeline=None
+        if name in ['eeprom-wel-during-write','eeprom-overlong-status']:
+            p.byte(0xffd4,1);p.send(5);p.send(0)
+            p.code += bytes.fromhex('6a88f800')
+            p.byte(0xffd4,5)
+            expected={'ram':{'f800':'03' if name=='eeprom-wel-during-write' else '02'},
+                      'nv_commits':1 if name=='eeprom-wel-during-write' else 0}
+        elif name=='eeprom-power-before-cs':
+            timeline='1000,power,0\n'
+            expected={'eeprom':{'0020':'ff'},'nv_commits':0}
+        else:
+            timeline='1000,reset,0\n'
+            expected={'eeprom':{'0020':'a5'},'nv_commits':1}
+        yield name,p.finish(),expected,timeline
+
 
 def expectation_metadata(name: str) -> dict:
+    if name.startswith('eeprom-'):
+        return {'kind':'documented','source':'ST M95512 DS4192 Rev24 §§5.1,6.3.2,6.4,6.6',
+                'question':'Do WEL, exact WRSR length, chip-select acceptance, and the external reset domain follow the EEPROM protocol?'}
     if name == 'long-displacement-store':
         return {'kind':'documented','source':'REJ09B0213-0300 §2.2.35 p.127; GNU gas h8300/movlh.s and h8300.exp (8ea833b70679)',
                 'question':'Does the assembler-emitted MOV.L displacement store execute with its high selector bit?'}
