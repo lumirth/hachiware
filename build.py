@@ -43,6 +43,16 @@ def handler(image: bytes, vector: int, code: str) -> bytes:
 
 
 def cases():
+    p=Program()
+    for a,v in [(0xfffb,0x44),(0xfff5,0x82),(0xf0f1,0x40),(0xf0f0,0x80)]:p.byte(a,v)
+    p.code += bytes(1000)
+    # Watch-selected TCNT cannot count while X1 is stopped. OSCF is status.
+    p.code += bytes.fromhex('6b00f0f66b80f8006a08fff56a88f802')
+    p.byte(0xfff5,0xa2) # ROSC/32 works while SUBSTP stays set; OSCF stays zero.
+    p.code += bytes.fromhex('6a08fff56a88f8036b00f0f647fa')
+    p.byte(0xf804,0xa5)
+    yield 'oscillator-stopped-crystal-and-rosc-mux',p.finish(),{'ram':{'f800':'000080a0a5'}},None
+
     # REJ09B0152-0300 §12.2 and TN-H8*-A309B/E. These are register
     # observations by original guest code, with explicit instruction alignment.
     def record(p, address, slot):
@@ -540,6 +550,9 @@ def cases():
 
 
 def expectation_metadata(name: str) -> dict:
+    if name.startswith('oscillator-'):
+        return {'kind':'documented','source':'REJ09B0152-0300 §§4.1.1,4.3.4,5.5; Table10.3',
+                'question':'Does SUBSTP stop the crystal, can ROSC/32 clock Timer W with that crystal stopped, and is OSCF read-only?'}
     if name.startswith('watchdog-'):
         return {'kind':'documented','source':'REJ09B0152-0300 §12.2; TN-H8*-A309B/E rev.2 (2005-10-04)',
                 'question':'Do old-latch protection, actual MOV.B addressing/alignment, and OVF read qualification preserve each independent register field?',
