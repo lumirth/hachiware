@@ -46,6 +46,7 @@ def cases():
     for name,enable,expected,timeline in [
         ('sensor-low-g',1,'0a00','0,accel,0,0,0\n'),
         ('sensor-high-g',2,'0500',None),
+        ('sensor-self-test-input',1,'0a00',None),
     ]:
         p=Program()
         for a,v in [(0xfffb,0x14),(0xf0e0,0x8c),(0xf0e1,0x40),(0xf0e2,0x86),
@@ -53,11 +54,43 @@ def cases():
             p.byte(a,v)
         for a,v in [(0x0b,enable),(0x0c,32),(0x0d,0),(0x0e,32),(0x0f,0)]:
             p.byte(0xffdc,0);p.send(a);p.send(v);p.byte(0xffdc,1)
+        if name=='sensor-self-test-input':
+            p.byte(0xffdc,0);p.send(0x0a);p.send(8);p.byte(0xffdc,1)
         p.code += bytes(20000)
         for slot in range(2):
             p.byte(0xffdc,0);p.send(0x89);p.send(0);p.code += bytes((0x6a,0x88,0xf8,slot));p.byte(0xffdc,1)
             p.byte(0xffdc,0);p.send(0x0a);p.send(0x40);p.byte(0xffdc,1)
         yield name,p.finish(),{'ram':{'f800':expected}},timeline
+    for name in ['sensor-self-test-completion','sensor-image-update','sensor-autowake-asleep','sensor-autowake-awake']:
+        p=Program()
+        for a,v in [(0xfffb,0x14),(0xf0e0,0x8c),(0xf0e1,0x40),(0xf0e2,0x86),
+                    (0xf0e3,0xc0),(0xffe4,7),(0xffd4,5),(0xf087,8),(0xffec,1),(0xffdc,1)]:
+            p.byte(a,v)
+        timeline=None
+        if name.startswith('sensor-autowake'):
+            for a,v in [(0x0b,0),(0x15,0x81),(0x0a,1)]:
+                p.byte(0xffdc,0);p.send(a);p.send(v);p.byte(0xffdc,1)
+            irq=Program();irq.byte(0xffdc,0);irq.send(0x80);irq.send(0)
+            irq.code += bytes.fromhex('6a88f800');irq.byte(0xffdc,1)
+            image=handler(p.finish(),7,(irq.code[4:]+bytes.fromhex('40fe')).hex())
+            awake=name.endswith('-awake')
+            timeline=f'{21000 if awake else 1000},nmi,0\n'
+            expected='02' if awake else 'ff'
+        elif name=='sensor-self-test-completion':
+            p.byte(0xffdc,0);p.send(0x0a);p.send(4);p.byte(0xffdc,1)
+            p.code += bytes(20000)
+            p.byte(0xffdc,0);p.send(0x89)
+            for slot in range(2):
+                p.send(0);p.code += bytes((0x6a,0x88,0xf8,slot))
+            p.byte(0xffdc,1);image=p.finish();expected='8000'
+        else:
+            p.byte(0xffdc,0);p.send(0x0a);p.send(0x30);p.byte(0xffdc,1)
+            p.byte(0xffdc,0);p.send(0x8b);p.send(0);p.code += bytes.fromhex('6a88f800');p.byte(0xffdc,1)
+            p.byte(0xffdc,0);p.send(0x0b);p.send(0);p.byte(0xffdc,1)
+            p.code += bytes(2000)
+            p.byte(0xffdc,0);p.send(0x8b);p.send(0);p.code += bytes.fromhex('6a88f801');p.byte(0xffdc,1)
+            image=p.finish();expected='ff03'
+        yield name,image,{'ram':{'f800':expected}},timeline
     for name,reg14,offset,expected,timeline in [
         ('sensor-factory-defaults',None,None,{'f800':'031496a0960000a20d0e80'},None),
         ('sensor-offset-2g',6,0x40,{'f800':'014264'},None),
@@ -472,7 +505,7 @@ def main() -> None:
         (args.output/f'{name}.bin').write_bytes(image)
         if timeline: (args.output/f'{name}.csv').write_text(timeline)
         manifest['cases'].append({'name':name,'firmware':f'{name}.bin','sha256':hashlib.sha256(image).hexdigest(),
-                                  'milliseconds':8,'expected':expected,'input':f'{name}.csv' if timeline else None,
+                                  'milliseconds':23 if name.startswith('sensor-autowake') else 8,'expected':expected,'input':f'{name}.csv' if timeline else None,
                                   'input_sha256':hashlib.sha256(timeline.encode()).hexdigest() if timeline else None,
                                   'expectation':expectation_metadata(name)})
     (args.output/'manifest.json').write_text(json.dumps(manifest,indent=2)+'\n')
