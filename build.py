@@ -43,6 +43,25 @@ def handler(image: bytes, vector: int, code: str) -> bytes:
 
 
 def cases():
+    for name,reg14,offset,expected,timeline in [
+        ('sensor-factory-defaults',None,None,{'f800':'031496a0960000a20d0e80'},None),
+        ('sensor-offset-2g',6,0x40,{'f800':'014264'},None),
+        ('sensor-offset-4g',14,0x40,{'f800':'012164'},None),
+        ('sensor-offset-8g',22,0x40,{'f800':'811064'},None),
+        ('sensor-temperature',6,None,{'f800':'014082'},'0,temperature,35000\n'),
+    ]:
+        p=Program()
+        for a,v in [(0xfffb,0x14),(0xf0e0,0x8c),(0xf0e1,0x40),(0xf0e2,0x86),
+                    (0xf0e3,0xc0),(0xffe4,7),(0xffd4,5),(0xf087,8),(0xffec,1),(0xffdc,1)]:
+            p.byte(a,v)
+        for address,value in ([(0x14,reg14)] if reg14 is not None else []) + ([(0x0a,0x10),(0x18,offset)] if offset is not None else []):
+            p.byte(0xffdc,0);p.send(address);p.send(value);p.byte(0xffdc,1)
+        p.code += bytes(20000) # More than 3 ms cold acquisition time.
+        p.byte(0xffdc,0);p.send(0x8b if reg14 is None else 0x86)
+        for byte in range(11 if reg14 is None else 3):
+            p.send(0);p.code += bytes((0x6a,0x88,0xf8,byte))
+        p.byte(0xffdc,1)
+        yield name,p.finish(),{'ram':expected},timeline
     p = Program()
     for a,v in [(0xfffb,0x14),(0xf0e0,0x8c),(0xf0e1,0x40),(0xf0e2,0x86),
                 (0xf0e3,0xc0),(0xffe4,7),(0xffd4,5),(0xf087,8),(0xffec,1),(0xffdc,1)]:
@@ -383,8 +402,8 @@ def cases():
 
 def expectation_metadata(name: str) -> dict:
     if name.startswith('sensor-'):
-        return {'kind':'documented','source':'Bosch BMA150 Rev1.6 §4.1, figures 6–9; §3.5.4',
-                'question':'Do paired writes and three-wire turnaround use the physical SDI net and preserve sequential identity bytes?'}
+        return {'kind':'documented','source':'Bosch BMA150 Rev1.6 register map, §§3.5,4.1; Bosch bma150_calc_new_offset and set_range',
+                'question':'Do serial transfers, defaults, physical temperature, and calibrated offset/range produce their specified observations?'}
     if name.startswith('lcd-'):
         return {'kind':'documented','source':'Novatek NT7508 V1.0 pp.15–17,29,34–41,44–46; lumirth/pw DisplayFill for plane order',
                 'question':'Do serial LCD commands preserve physical RAM, map both planes before viewport cropping, and obey display/duty/reset priority?'}
