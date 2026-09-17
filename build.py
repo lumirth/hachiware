@@ -18,6 +18,11 @@ class Program:
     def send(self, value: int) -> None:
         self.byte(0xF0EB, value)
         self.code += bytes.fromhex('6a08f0e4e80847f86a08f0e9')
+    def lcd(self, data: bool, values: list[int]) -> None:
+        for value in values:
+            self.byte(0xffd4, 6 if data else 4)
+            self.send(value)
+            self.byte(0xffd4, 5)
     def finish(self) -> bytes:
         self.code += bytes.fromhex('40fe')
         image = bytearray(49152)
@@ -38,6 +43,34 @@ def handler(image: bytes, vector: int, code: str) -> bytes:
 
 
 def cases():
+    for name in ['lcd-bitplanes', 'lcd-segment-reversal', 'lcd-duty-override', 'lcd-icon-reset']:
+        p = Program()
+        for a,v in [(0xfffb,0x14),(0xf0e0,0x8c),(0xf0e1,0x40),(0xf0e2,0x86),
+                    (0xf0e3,0xc0),(0xffe4,7),(0xffd4,5),(0xf087,8),(0xffec,1),(0xffdc,1)]:
+            p.byte(a,v)
+        p.lcd(False, [0x44,32,0x48,64,0xab,0x2f,0xe8,0xaf])
+        if name == 'lcd-bitplanes':
+            p.lcd(True, [1,0,0,1,1,1])
+            expected = {'pixels':{'0000':'02010300'}, 'display_on':True}
+        elif name == 'lcd-segment-reversal':
+            p.lcd(False, [0x17,0x0d,0xa1])
+            p.lcd(True, [1,1,0,1,1,0])
+            expected = {'pixels':{'0000':'02010300'}, 'lcd':{'00fa':'010100010100'}}
+        elif name == 'lcd-duty-override':
+            p.lcd(False, [0x48,16,0xa7,0xa5,0x48,0xff])
+            expected = {'pixels':{'0000':'03030303','05ff':'03000000'}}
+        else:
+            p.lcd(False, [0xa3])
+            p.lcd(True, [0xfe,0xff])
+            p.lcd(False, [0xa2])
+            p.lcd(True, [0xff])
+            p.lcd(False, [0xb0])
+            p.lcd(True, [0x55])
+            p.lcd(False, [0x40,64,0xe2])
+            p.lcd(True, [0xaa])
+            expected = {'icons':{'0000':'00010100'}, 'lcd':{'0000':'aa000055'},
+                        'display_on':True, 'display_start':0}
+        yield name,p.finish(),expected,None
     p = Program()
     p.code += bytes.fromhex('7a0011223344f0aaf8bb7908ccdd01006b80f800')
     yield 'register-aliases', p.finish(), {'ram': {'f800': 'ccddaabb'}}, None
@@ -316,6 +349,9 @@ def cases():
 
 
 def expectation_metadata(name: str) -> dict:
+    if name.startswith('lcd-'):
+        return {'kind':'documented','source':'Novatek NT7508 V1.0 pp.15–17,29,34–41,44–46; lumirth/pw DisplayFill for plane order',
+                'question':'Do serial LCD commands preserve physical RAM, map both planes before viewport cropping, and obey display/duty/reset priority?'}
     if name.startswith('eeprom-'):
         return {'kind':'documented','source':'ST M95512 DS4192 Rev24 §§5.1,6.3.2,6.4,6.6',
                 'question':'Do WEL, exact WRSR length, chip-select acceptance, and the external reset domain follow the EEPROM protocol?'}

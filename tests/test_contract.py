@@ -17,7 +17,8 @@ class Conformance(unittest.TestCase):
     def test_rejects_misspelled_and_out_of_range_expectations(self):
         for expected in [{'interrupt_entry':1}, {'ram':{'0000':'01'}}, {'ram':{'ff7f':'abcd'}},
                          {'eeprom':{'ffff':'0102'}}, {'ram':{'f800':''}}, {'er0':1<<32},
-                         {'display_on':1}, {'ir_events':True}]:
+                         {'display_on':1}, {'ir_events':True}, {'pixels':{'1800':'01'}},
+                         {'pixels':{'0000':'04'}}, {'icons':{'0100':'00'}}]:
             with self.subTest(expected=expected), self.assertRaises(ValueError):
                 suite.validate_expected(expected)
         suite.validate_expected({'ram':{'f780':'00','ff7f':'ab'},'interrupt_entries':1})

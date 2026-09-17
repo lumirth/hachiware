@@ -20,6 +20,8 @@ TARGET = 'H8/38606F'
 KINDS = {'documented', 'software_reasoned', 'hardware_measured', 'regression', 'unresolved'}
 COUNTS = {'nv_commits', 'ir_events', 'interrupt_entries'}
 SCALARS = COUNTS | {'er0', 'display_on', 'display_start', 'sleeping'}
+STORAGE = {'ram': (0xf780, 2048), 'eeprom': (0, 65536), 'lcd': (0, 4096),
+           'icons': (0, 256), 'pixels': (0, 6144)}
 
 
 def checked_file(root: Path, name: str, expected_hash: str, size: int | None = None) -> Path:
@@ -37,9 +39,9 @@ def checked_file(root: Path, name: str, expected_hash: str, size: int | None = N
 
 
 def validate_expected(expected: dict) -> None:
-    if not isinstance(expected, dict) or expected.keys() - (SCALARS | {'ram', 'eeprom'}):
+    if not isinstance(expected, dict) or expected.keys() - (SCALARS | STORAGE.keys()):
         raise ValueError('unknown or malformed expected-result key')
-    for domain, start, length in [('ram', 0xf780, 2048), ('eeprom', 0, 65536)]:
+    for domain, (start, length) in STORAGE.items():
         entries = expected.get(domain, {})
         if not isinstance(entries, dict):
             raise ValueError(f'{domain}: expectations must map addresses to hex bytes')
@@ -51,6 +53,8 @@ def validate_expected(expected: dict) -> None:
             offset = int(address, 16) - start
             if not 0 <= offset <= length - len(bytes.fromhex(text)):
                 raise ValueError(f'{domain}: expected range outside physical storage')
+            if domain == 'pixels' and any(shade > 3 for shade in bytes.fromhex(text)):
+                raise ValueError('pixels: expected two-bit shade codes')
     for key in expected.keys() & SCALARS:
         value = expected[key]
         if key in {'display_on', 'sleeping'}:
@@ -108,7 +112,9 @@ def compare(expected: dict, report: dict, output: Path, milliseconds: int) -> li
     if (int(report['time_raw']) != expected_raw or int(report['requested_time_raw']) != expected_raw
             or report['time_us'] != (expected_raw * 1_000_000 >> 64)):
         failures.append('requested exclusive horizon was not reached')
-    for domain, start, size in [('ram', 0xf780, 2048), ('eeprom', 0, 65536)]:
+    for domain, (start, size) in STORAGE.items():
+        if domain not in expected and domain not in {'ram', 'eeprom'}:
+            continue
         data = (output / f'{domain}.bin').read_bytes()
         if len(data) != size:
             raise ValueError(f'runner exported wrong {domain} size')

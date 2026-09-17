@@ -22,7 +22,8 @@ The ROMs exercise register aliases, arithmetic flags, call/return,
 RAM execution, aliased predecrement stores, EEPROM page wrap, infrared TX/RX,
 Timer W capture, comparator wake, AEC overflow/gating, NMI, retained prefetch
 under self-modification, division edge cases, direct clock transitions, and SSU
-receive-only/overrun/holding-register behavior. The
+receive-only/overrun/holding-register behavior, EEPROM programming/reset,
+and LCD plane order, column reversal, partial duty, icons, and software reset. The
 `spec/register_access.tsv` table independently transcribes 95 physical access
 widths and state counts from REJ09B0152-0300 §20.1. It is reference data for
 diagnostics, not generated from a bus decoder.
@@ -57,6 +58,11 @@ exports `ram.bin` (2,048 bytes, base `0xf780`), `eeprom.bin` (65,536 bytes), and
 | `nv_commits` | Completed nonvolatile operations |
 | `ir_events` | Infrared output transitions |
 | `display_on`, `display_start` | LCD enable and start-line state |
+
+Cases may also request `lcd.bin` (4,096 controller RAM bytes), `icons.bin`
+(256 icon plane bytes, DB0 only), or `pixels.bin` (96×64 row-major logical
+shade codes 0–3). These observations use physical controller layout and panel
+bonding; pixel assertions do not prescribe analog luminance or a renderer.
 
 Physical inputs use `time_us,kind,...` CSV rows: `ir,0|1`, `nmi,0|1`,
 `digital,p10|p11|p12,0|1`, and `analog,pb0..pb5|vcref,millivolts|release`.
