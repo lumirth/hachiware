@@ -211,14 +211,91 @@ def cases():
     p.code += bytes.fromhex('6a08f0e4e80847f86a08f0e46a88f8006a08f0eb6a88f801')
     yield 'ssu-replace-queued-byte',p.finish(),{'ram':{'f800':'0c33'}},None
 
+    # External edges, not completed bytes, enter the package. Test all four
+    # SPI phases, the alternate package mux, and clocked-sync LSB-first.
+    for suffix,mode,mux,four_line in [
+        ('mode-0',0xe0,0,True),('mode-1',0xc0,0,True),
+        ('mode-2',0xa0,0,True),('mode-3',0x80,0,True),
+        ('alternate-pins',0xa0,0x10,True),('clocked-lsb',0,0,False),
+    ]:
+        p=Program()
+        for a,v in [(0xfffb,0x14),(0xffec,1),(0xffdc,1),(0xf085,mux),
+                    (0xf0e0,0x0d),(0xf0e1,0x40 if four_line else 0),
+                    (0xf0e2,mode),(0xf0e3,0x40)]:p.byte(a,v)
+        p.code += bytes.fromhex('6a08f0e4e80247f86a08f0e96a88f800')
+        p.code += bytes(256) # allow the final half-clock and deselection
+        p.code += bytes.fromhex('6a08f0e46a88f801')
+        cs,clk,data=('p93','p92','p91') if mux else ('p90','p91','p92')
+        idle=0 if mode&0x40 else 1
+        rows=[f'0,digital,{cs},1',f'0,digital,{clk},{idle}',f'500,digital,{cs},0']
+        for i in range(8):
+            bit=(0x96 >> (7-i if mode&0x80 else i))&1
+            rows += [f'{515+20*i},digital,{data},{bit}',
+                     f'{520+20*i},digital,{clk},{1-idle}',f'{530+20*i},digital,{clk},{idle}']
+        rows += [f'680,digital,{cs},1']
+        # Clocked-sync inputs use SSI instead of the four-line slave's SSO.
+        if not four_line:rows=[row.replace(',p92,',',p93,') for row in rows]
+        yield 'ssu-slave-'+suffix,p.finish(),{'ram':{'f800':'9604'}},'\n'.join(rows)+'\n'
+
+    p=Program()
+    for a,v in [(0xfffb,0x14),(0xf0e0,0x0d),(0xf0e1,0x40),(0xf0e2,0x80),
+                (0xf0e3,0xc0),(0xf0eb,0x3c)]:p.byte(a,v)
+    p.code += bytes.fromhex('6a08f0e4e80147f86a08f0e46a88f8006a08f0e96a88f801')
+    rows=['0,digital,p90,1','0,digital,p91,1','500,digital,p90,0']
+    for i in range(3):rows += [f'{520+20*i},digital,p91,0',f'{530+20*i},digital,p91,1']
+    rows += ['580,digital,p90,1']
+    yield 'ssu-slave-deselect-in-frame',p.finish(),{'ram':{'f800':'0500'}},'\n'.join(rows)+'\n'
+
+    for suffix,high,mux,expected in [('normal',0x0d,0,'0e961d0a'),
+                                   ('alternate',0x0d,0x10,'0e961d05'),
+                                   ('bidirectional',0x4d,0,'0c005d06')]:
+        p=Program()
+        for a,v in [(0xfffb,0x14),(0xf085,mux),(0xf0e0,high),(0xf0e1,0x40),
+                    (0xf0e2,0x80),(0xf0e3,0x80 if high&0x40 else 0xc0),
+                    (0xf0eb,0x35)]:p.byte(a,v)
+        p.code += bytes.fromhex('6a08f0e4e80847f86a08f0e46a88f8006a08f0e96a88f801')
+        p.code += bytes.fromhex('6a08f0e06a88f8026a08ffdc6a88f803')
+        cs,clk,data=('p93','p92','p91') if mux else ('p90','p91','p92')
+        rows=[f'0,digital,{cs},1',f'0,digital,{clk},1',f'500,digital,{cs},0']
+        for i in range(8):
+            rows += [f'{515+20*i},digital,{data},{(0x96>>(7-i))&1}',
+                     f'{520+20*i},digital,{clk},0',f'{530+20*i},digital,{clk},1']
+        rows += [f'800,digital,{cs},1']
+        yield 'ssu-slave-transmit-'+suffix,p.finish(),{'ram':{'f800':expected}},'\n'.join(rows)+'\n'
+
+    p=Program()
+    for a,v in [(0xfffb,0x14),(0xf0e0,0x8e),(0xf0e1,0x40),(0xf0e2,0x86),
+                (0xf0e3,0x80),(0xf0eb,0x11)]:p.byte(a,v)
+    p.code += bytes.fromhex('6a08f0e4e80147f86a08f0e46a88f8006a08f0e06a88f801')
+    yield 'ssu-master-selection-conflict',p.finish(),{'ram':{'f800':'010e'}},'0,digital,p90,0\n'
+
+    p=Program()
+    for a,v in [(0xfffb,0x14),(0xf087,4),(0xf0e0,0xcc),(0xf0e1,0x40),
+                (0xf0e2,0xa6),(0xf0e3,0x60)]:p.byte(a,v)
+    p.code += bytes.fromhex('6a08f0e96a08f0e4e80247f86a08f0e96a88f800')
+    p.byte(0xf0e3,0)
+    yield 'ssu-bidirectional-receive',p.finish(),{'ram':{'f800':'ff'}},None
+
+    p=Program()
+    for a,v in [(0xfffb,0x14),(0xf0e0,0x8c),(0xf0e1,0x40),(0xf0e3,0x80)]:p.byte(a,v)
+    # SOL reads the actual retained serial output, including the documented
+    # SOLP 0->1 write-protection transition. Open-drain high releases the pin.
+    for index,value in enumerate([0x94,0x8c,0x9c,0xb4]):
+        p.byte(0xf0e0,value)
+        p.code += bytes.fromhex('6a08f0e06a88')+(0xf800+2*index).to_bytes(2,'big')
+        p.code += bytes.fromhex('6a08ffdc6a88')+(0xf801+2*index).to_bytes(2,'big')
+    p.byte(0xf087,4)
+    p.code += bytes.fromhex('6a08ffdc6a88f808')
+    yield 'ssu-output-level-and-open-drain',p.finish(),{'ram':{'f800':'9c078c038c03bc0307'}},None
+
 
 def expectation_metadata(name: str) -> dict:
     if name == 'long-displacement-store':
         return {'kind':'documented','source':'REJ09B0213-0300 §2.2.35 p.127; GNU gas h8300/movlh.s and h8300.exp (8ea833b70679)',
                 'question':'Does the assembler-emitted MOV.L displacement store execute with its high selector bit?'}
     if name.startswith('ssu'):
-        return {'kind':'documented','source':'REJ09B0152-0300 §§15.3.2,15.3.4–15.3.8,15.4.5,15.4.11',
-                'question':'Do the separate shift/holding/receive registers, receive-only sequencing, and qualified flags follow the SSU contract?'}
+        return {'kind':'documented','source':'REJ09B0152-0300 §§15.3–15.5; §8.4 and Appendix B.3 for the package mux',
+                'question':'Do the serial pins, selection, shift/holding/receive registers, and qualified flags follow the SSU contract?'}
     if name.startswith('direct-clock'):
         return {'kind':'documented','source':'REJ09B0152-0300 §§5.3.2,5.3.5',
                 'question':'Does SLEEP enter each programmed clock mode and complete direct-transition exception handling?'}
