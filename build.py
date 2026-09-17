@@ -177,8 +177,40 @@ def cases():
     yield 'division-flags-and-continuation',p.finish(),{'ram':{
         'f800':bytes(row[4] for row in divisions).hex(),'f820':'a5'}},None
 
+    for name,enable in [('ssu-receive-single',0x60),('ssu-receive-overrun',0x40)]:
+        p=Program()
+        for a,v in [(0xfffb,0x14),(0xf087,8),(0xf0e0,0x8c),(0xf0e1,0x40),
+                    (0xf0e2,0xa6),(0xf0e3,enable)]:p.byte(a,v)
+        p.code += bytes.fromhex('6a08f0e9') # dummy read starts receive-only clocks
+        mask=2 if enable==0x60 else 0x40
+        p.code += bytes.fromhex('6a08f0e4e8')+bytes([mask])+bytes.fromhex('47f8')
+        p.byte(0xf0e3,0) # RE clear retains unread data and ORER
+        p.code += bytes.fromhex('6a08f0e46a88f8006a08f0e96a88f8016a08f0e46a88f802')
+        yield name,p.finish(),{'ram':{'f800':'06ff04' if enable==0x60 else '46ff44'}},None
+
+    p=Program()
+    for a,v in [(0xfffb,0x14),(0xf087,8),(0xf0e0,0x8c),(0xf0e1,0x40),
+                (0xf0e2,0x80),(0xf0e3,0xc0)]:p.byte(a,v)
+    p.send(0x35) # complete first byte and consume SSRDR
+    p.code += bytes.fromhex('6a08f0e4')
+    p.byte(0xf0e4,8) # read-qualified TDRE clear repeats unchanged SSTDR
+    p.code += bytes.fromhex('6a08f0e4e80247f8')
+    p.byte(0xf0e3,0)
+    p.byte(0xf0e1,0x60) # SRES keeps status/data registers
+    p.code += bytes.fromhex('6a08f0e46a88f8006a08f0e96a88f8016a08f0eb6a88f802')
+    yield 'ssu-repeat-and-sequencer-reset',p.finish(),{'ram':{'f800':'0eff35'}},None
+
+    p=Program()
+    for a,v in [(0xfffb,0x14),(0xf0e0,0x8c),(0xf0e1,0x40),(0xf0e2,0x80),
+                (0xf0e3,0x80),(0xf0eb,0x11),(0xf0eb,0x22),(0xf0eb,0x33)]:p.byte(a,v)
+    p.code += bytes.fromhex('6a08f0e4e80847f86a08f0e46a88f8006a08f0eb6a88f801')
+    yield 'ssu-replace-queued-byte',p.finish(),{'ram':{'f800':'0c33'}},None
+
 
 def expectation_metadata(name: str) -> dict:
+    if name.startswith('ssu'):
+        return {'kind':'documented','source':'REJ09B0152-0300 §§15.3.2,15.3.4–15.3.8,15.4.5,15.4.11',
+                'question':'Do the separate shift/holding/receive registers, receive-only sequencing, and qualified flags follow the SSU contract?'}
     if name.startswith('direct-clock'):
         return {'kind':'documented','source':'REJ09B0152-0300 §§5.3.2,5.3.5',
                 'question':'Does SLEEP enter each programmed clock mode and complete direct-transition exception handling?'}
