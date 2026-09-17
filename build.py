@@ -43,6 +43,39 @@ def handler(image: bytes, vector: int, code: str) -> bytes:
 
 
 def cases():
+    p = Program()
+    for a,v in [(0xfffb,0x14),(0xf0e0,0x8c),(0xf0e1,0x40),(0xf0e2,0x86),
+                (0xf0e3,0xc0),(0xffe4,7),(0xffd4,5),(0xf087,8),(0xffec,1),(0xffdc,1)]:
+        p.byte(a,v)
+    p.byte(0xffdc,0)
+    for value in [0x0c,0x20,0x0d,2]: p.send(value)
+    p.byte(0xffdc,1);p.byte(0xffdc,0);p.send(0x8c)
+    for address in [0xf800,0xf801]:
+        p.send(0)
+        p.code += bytes((0x6a,0x88,address>>8,address&255))
+    p.byte(0xffdc,1)
+    yield 'sensor-paired-writes',p.finish(),{'ram':{'f800':'2002'}},None
+
+    p = Program()
+    p.byte(0xffe4,7);p.byte(0xffd4,5) # LCD/EEPROM deselected.
+    p.byte(0xffdc,3);p.byte(0xffec,7) # GPIO CS/SCK/SDI, mode-3 idle.
+    def gpio_byte(value):
+        for bit in range(7,-1,-1):
+            data=((value>>bit)&1)<<2
+            p.byte(0xffdc,data);p.byte(0xffdc,data|2)
+    p.byte(0xffdc,2)
+    gpio_byte(0x15);gpio_byte(0) # Select three-wire, same write protocol.
+    p.byte(0xffdc,3);p.byte(0xffdc,2)
+    gpio_byte(0x80)
+    p.byte(0xffec,3) # Release SDI/SDA before turnaround.
+    p.byte(0xffdc,0);p.byte(0xffdc,2) # Ninth edge launches D7.
+    for bit in range(16):
+        p.byte(0xffdc,0)
+        p.code += bytes((0x6a,0x08,0xff,0xdc,0x6a,0x88,0xf8,bit))
+        p.byte(0xffdc,2)
+    p.byte(0xffdc,3)
+    yield 'sensor-three-wire-gpio',p.finish(),{'ram':{'f800':'00000000000004000000000400000000'}},None
+
     for name in ['lcd-bitplanes', 'lcd-segment-reversal', 'lcd-duty-override', 'lcd-icon-reset']:
         p = Program()
         for a,v in [(0xfffb,0x14),(0xf0e0,0x8c),(0xf0e1,0x40),(0xf0e2,0x86),
@@ -349,6 +382,9 @@ def cases():
 
 
 def expectation_metadata(name: str) -> dict:
+    if name.startswith('sensor-'):
+        return {'kind':'documented','source':'Bosch BMA150 Rev1.6 §4.1, figures 6–9; §3.5.4',
+                'question':'Do paired writes and three-wire turnaround use the physical SDI net and preserve sequential identity bytes?'}
     if name.startswith('lcd-'):
         return {'kind':'documented','source':'Novatek NT7508 V1.0 pp.15–17,29,34–41,44–46; lumirth/pw DisplayFill for plane order',
                 'question':'Do serial LCD commands preserve physical RAM, map both planes before viewport cropping, and obey display/duty/reset priority?'}

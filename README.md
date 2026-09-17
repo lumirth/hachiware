@@ -23,7 +23,8 @@ RAM execution, aliased predecrement stores, EEPROM page wrap, infrared TX/RX,
 Timer W capture, comparator wake, AEC overflow/gating, NMI, retained prefetch
 under self-modification, division edge cases, direct clock transitions, and SSU
 receive-only/overrun/holding-register behavior, EEPROM programming/reset,
-and LCD plane order, column reversal, partial duty, icons, and software reset. The
+LCD plane order, column reversal, partial duty, icons, and software reset,
+and sensor address/data pairs and three-wire GPIO reads. The
 `spec/register_access.tsv` table independently transcribes 95 physical access
 widths and state counts from REJ09B0152-0300 §20.1. It is reference data for
 diagnostics, not generated from a bus decoder.
