@@ -119,8 +119,69 @@ def cases():
     image=handler(p.finish(),7,'6a08f7800a086a88f7805670')
     yield 'nmi-masked-sleep',image,{'ram':{'f780':'02'},'interrupt_entries':2},'100,nmi,0\n300,nmi,1\n500,nmi,0\n'
 
+    # Complete both clock transitions through SLEEP and the ordinary vector
+    # 13 handler. Neither merely stopping instruction issue nor changing the
+    # programmed SYSCR registers is enough to perform a direct transition.
+    p=Program();p.code += bytes.fromhex('067f')
+    p.byte(0xfff0,0xaf);p.byte(0xfff1,0xeb)
+    p.code += bytes.fromhex('0180')
+    p.byte(0xfff0,0xa7);p.byte(0xfff1,0xeb)
+    p.code += bytes.fromhex('0180')
+    p.byte(0xf781,0xa5)
+    image=handler(p.finish(),13,'6a08f7800a086a88f7805670')
+    yield 'direct-clock-transitions',image,{'ram':{'f780':'02a5'},'interrupt_entries':2},None
+
+    # A store's NEXT fetch precedes its data write. The overwritten first word
+    # must execute from the pipeline; the following extension remains live.
+    p=Program()
+    body=bytes.fromhex('7900f82a6b80f828f8116a88f80040fe')
+    for offset in range(0,len(body),2):
+        p.word(0xf820+offset,int.from_bytes(body[offset:offset+2],'big'))
+    p.code += bytes.fromhex('5a00f820')
+    yield 'prefetch-before-self-modifying-store',p.finish(),{'ram':{'f800':'11','f828':'f82a'}},None
+
+    # JSR @aa:24 fetches the target before pushing the return PC. Here the
+    # stack aliases that target, making the bus order visible in plain RAM.
+    p=Program()
+    body=bytes.fromhex('f8116a88f80040fe')
+    for offset in range(0,len(body),2):
+        p.word(0xf822+offset,int.from_bytes(body[offset:offset+2],'big'))
+    p.code += bytes.fromhex('7907f8245e00f822')
+    yield 'call-prefetch-before-stack-write',p.finish(),{'ram':{'f800':'11'}},None
+
+    # The manual defines these flags and continued execution even when the
+    # quotient/remainder bits are unspecified. Do not certify those bits.
+    p=Program()
+    divisions=[
+        (False,False,0x1234,0,0xf7), (False,True,0x12345678,0,0xf7),
+        (True,False,0xffff,0,0xff), (True,True,0xffffffff,0,0xff),
+        (False,False,0xffff,1,0xf3), (False,True,0xffffffff,1,0xf3),
+        (True,False,0x8000,0xff,0xf3), (True,True,0x80000000,0xffff,0xf3),
+        (True,False,0xffff,2,0xfb), (True,True,0xffffffff,2,0xfb),
+        (False,True,0x10000,0x8000,0xfb),
+    ]
+    for index,(signed,word,dividend,divisor,flags) in enumerate(divisions):
+        p.code += bytes.fromhex('7a01')+dividend.to_bytes(4,'big')
+        p.code += bytes.fromhex('7900')+divisor.to_bytes(2,'big')+bytes.fromhex('07f3')
+        if signed:p.code += bytes.fromhex('01d0')
+        p.code += bytes.fromhex('5301' if word else '5181')
+        p.code += bytes.fromhex('020a6a8a')+(0xf800+index).to_bytes(2,'big')
+    p.byte(0xf820,0xa5)
+    yield 'division-flags-and-continuation',p.finish(),{'ram':{
+        'f800':bytes(row[4] for row in divisions).hex(),'f820':'a5'}},None
+
 
 def expectation_metadata(name: str) -> dict:
+    if name.startswith('direct-clock'):
+        return {'kind':'documented','source':'REJ09B0152-0300 §§5.3.2,5.3.5',
+                'question':'Does SLEEP enter each programmed clock mode and complete direct-transition exception handling?'}
+    if name.startswith('prefetch') or name.startswith('call-prefetch'):
+        return {'kind':'documented','source':'REJ09B0213-0300 §2.8 Table 2.10 pp.239–241',
+                'question':'Does a real prefetched opcode survive a later write to its RAM address?'}
+    if name.startswith('division'):
+        return {'kind':'documented','source':'REJ09B0213-0300 §§2.2.26–2.2.27 pp.83–95',
+                'question':'Do all division widths continue with documented operand-sign and zero-divisor flags?',
+                'limitation':'Undefined zero-divisor/overflow destination bits are deliberately not asserted.'}
     if name.startswith('predecrement'):
         return {'kind':'documented','source':'ADE-602-053A MOV.B/W/L usage notes pp.121/123/125',
                 'question':'Does predecrement precede sampling an aliased source field?'}

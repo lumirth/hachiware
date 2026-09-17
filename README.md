@@ -18,9 +18,10 @@ An adapter belongs with its emulator and translates observations into the small
 contract below. A physical runner can implement the same contract where the
 experiment is applicable.
 
-The initial fifteen ROMs exercise register aliases, arithmetic flags, call/return,
+The ROMs exercise register aliases, arithmetic flags, call/return,
 RAM execution, aliased predecrement stores, EEPROM page wrap, infrared TX/RX,
-Timer W capture, comparator wake, AEC overflow/gating, and NMI. The
+Timer W capture, comparator wake, AEC overflow/gating, NMI, retained prefetch
+under self-modification, and division edge cases. The
 `spec/register_access.tsv` table independently transcribes 95 physical access
 widths and state counts from REJ09B0152-0300 §20.1. It is reference data for
 diagnostics, not generated from a bus decoder.

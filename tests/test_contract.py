@@ -27,7 +27,7 @@ class Conformance(unittest.TestCase):
             root=Path(d)/'fixtures'
             subprocess.run([sys.executable,str(ROOT/'build.py'),str(root)],check=True,capture_output=True)
             manifest=suite.load_manifest(root)
-            self.assertEqual(len(manifest['cases']),15)
+            self.assertEqual(len(manifest['cases']),19)
             for name in ['blank-eeprom.bin','register-aliases.bin','nmi-masked-sleep.csv']:
                 path=root/name;data=path.read_bytes()
                 path.write_bytes(bytes([data[0]^1])+data[1:])
