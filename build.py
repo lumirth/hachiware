@@ -131,6 +131,13 @@ def cases():
     image=handler(p.finish(),13,'6a08f7800a086a88f7805670')
     yield 'direct-clock-transitions',image,{'ram':{'f780':'02a5'},'interrupt_entries':2},None
 
+    p=Program() # reset CCR.I remains set
+    p.byte(0xfff0,0xaf);p.byte(0xfff1,0xeb)
+    p.code += bytes.fromhex('0180')
+    p.byte(0xf781,0xa5)
+    image=handler(p.finish(),13,'6a08f7800a086a88f7805670')
+    yield 'direct-clock-masked',image,{'ram':{'f780':'0000'},'interrupt_entries':0},None
+
     # A store's NEXT fetch precedes its data write. The overwritten first word
     # must execute from the pipeline; the following extension remains live.
     p=Program()
