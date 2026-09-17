@@ -42,6 +42,11 @@ def cases():
     p.code += bytes.fromhex('7a0011223344f0aaf8bb7908ccdd01006b80f800')
     yield 'register-aliases', p.finish(), {'ram': {'f800': 'ccddaabb'}}, None
     p = Program()
+    # GNU gas movlh.s / h8300.exp golden bytes, also MOV.L manual p.127.
+    p.code += bytes.fromhex('7a010000f8007a0011223344010078906ba000000020')
+    p.code += bytes.fromhex('02096a89f800')
+    yield 'long-displacement-store', p.finish(), {'ram': {'f800': '80', 'f820': '11223344'}}, None
+    p = Program()
     p.code += bytes.fromhex('f880888002096a88f8006a89f801')
     yield 'add-byte-flags', p.finish(), {'ram': {'f800': '0087'}}, None
     p = Program()
@@ -208,6 +213,9 @@ def cases():
 
 
 def expectation_metadata(name: str) -> dict:
+    if name == 'long-displacement-store':
+        return {'kind':'documented','source':'REJ09B0213-0300 §2.2.35 p.127; GNU gas h8300/movlh.s and h8300.exp (8ea833b70679)',
+                'question':'Does the assembler-emitted MOV.L displacement store execute with its high selector bit?'}
     if name.startswith('ssu'):
         return {'kind':'documented','source':'REJ09B0152-0300 §§15.3.2,15.3.4–15.3.8,15.4.5,15.4.11',
                 'question':'Do the separate shift/holding/receive registers, receive-only sequencing, and qualified flags follow the SSU contract?'}
