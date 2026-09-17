@@ -43,6 +43,43 @@ def handler(image: bytes, vector: int, code: str) -> bytes:
 
 
 def cases():
+    # REJ09B0152-0300 §12.2 and TN-H8*-A309B/E. These are register
+    # observations by original guest code, with explicit instruction alignment.
+    def record(p, address, slot):
+        p.code += bytes((0x6a, 0x08, address >> 8, address & 255,
+                         0x6a, 0x88, 0xf8, slot))
+    p=Program()
+    for i,a in enumerate(range(0xffb0,0xffb4)):record(p,a,i)
+    for i,v in enumerate([0x12,0xa2,0x8e],4):
+        p.byte(0xffb1,v);record(p,0xffb1,i)
+    p.byte(0xffb3,0x55);record(p,0xffb3,7)
+    p.byte(0xffb1,0x5e);record(p,0xffb1,8)
+    p.byte(0xffb3,0xc3);record(p,0xffb3,9)
+    yield 'watchdog-qualified-controls',p.finish(),{'ram':{'f800':'f0ae5700beba aa00fac3'.replace(' ','')}},None
+
+    p=Program()
+    for v in [0x9e,0xa2,0x8e]:p.byte(0xffb1,v)
+    slot=0
+    for clear in [0x87,0xc7,0x97]:
+        p.byte(0xffb2,0x28);record(p,0xffb2,slot);slot+=1
+        for pc_bit1 in [0,2]:
+            p.code += bytes((0xf8,clear))
+            if (0x100+len(p.code))&2 != pc_bit1:p.code += bytes(2)
+            p.code += bytes.fromhex('38b2')
+            record(p,0xffb2,slot);slot+=1
+    p.byte(0xffb2,0x28)
+    p.word(0xffb2,0x8700);record(p,0xffb2,9)
+    p.byte(0xffb2,0x87);record(p,0xffb2,10)
+    yield 'watchdog-interval-clear-alignment',p.finish(),{'ram':{'f800':'7f7f577f7f777f7f5f7f57'}},None
+
+    p=Program()
+    for a,v in [(0xffb1,0x5e),(0xffb3,0xff),(0xffb2,0x28),(0xfffb,0)]:p.byte(a,v)
+    record(p,0xffb2,0) # Reads OVF=0 before the first ROSC/2048 edge.
+    p.code += bytes(8000) # Four thousand NOPs: beyond the first 1.5625-ms edge.
+    p.byte(0xffb2,0x7f) # That old read of zero cannot clear a new OVF.
+    record(p,0xffb2,1)
+    p.byte(0xffb2,0x7f);record(p,0xffb2,2)
+    yield 'watchdog-overflow-read-qualification',p.finish(),{'ram':{'f800':'7fff7f'}},None
     for name,enable,expected,timeline in [
         ('sensor-low-g',1,'0a00','0,accel,0,0,0\n'),
         ('sensor-high-g',2,'0500',None),
@@ -503,6 +540,10 @@ def cases():
 
 
 def expectation_metadata(name: str) -> dict:
+    if name.startswith('watchdog-'):
+        return {'kind':'documented','source':'REJ09B0152-0300 §12.2; TN-H8*-A309B/E rev.2 (2005-10-04)',
+                'question':'Do old-latch protection, actual MOV.B addressing/alignment, and OVF read qualification preserve each independent register field?',
+                'limitation':'Alignment assertions use the absolute-8 MOV.B form shown in the erratum; other MOV.B forms follow ordinary write qualification.'}
     if name.startswith('sci-') or name.startswith('infrared-'):
         return {'kind':'documented','source':'REJ09B0152-0300 §§8.2,14.3–14.8; TN-H8*-A333B/E corrected five-bit formats; lumirth/pw IrConfigure and IrStartSend for transceiver polarity',
                 'question':'Do physical serial pins, corrected framing, status/data transfer, and transceiver shutdown obey their independent hardware contracts?',
