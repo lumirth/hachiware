@@ -32,6 +32,10 @@ protection, module wake, page programming with per-bit retry/strengthening masks
 and the target-specific EB4/EB5 erase geometry. They require explicit destructive
 test authorization before use on a physical device; emulator execution has no
 such physical effect. Pulse counts are never used as expected hardware results.
+Power cases distinguish suspended execution, RC reset with retained RAM, and
+volatile loss during sustained undervoltage. Their manifest identifies the
+nominal circuit and retention constants; they are calibration witnesses rather
+than claims that every physical unit has those exact values.
 The
 `spec/register_access.tsv` table independently transcribes 95 physical access
 widths and state counts from REJ09B0152-0300 §20.1. It is reference data for
