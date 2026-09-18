@@ -8,6 +8,7 @@ from __future__ import annotations
 import argparse, hashlib, json
 from pathlib import Path
 from flash import cases as flash_cases
+from boot import cases as boot_cases
 
 class Program:
     def __init__(self) -> None:
@@ -45,6 +46,7 @@ def handler(image: bytes, vector: int, code: str) -> bytes:
 
 def cases():
     yield from flash_cases()
+    yield from boot_cases()
     # Entry count lives in retained RAM. These physical conditions distinguish
     # a paused CPU, RES re-entry with retained RAM, and volatile charge loss.
     for name,absence,expected in [('short-retention',1000,1),
@@ -730,6 +732,12 @@ def expectation_metadata(name: str) -> dict:
                 'question':'Do short and sustained rail collapses distinguish stopped execution, RC reset, and retained or lost volatile data?',
                 'limitation':'Nominal unmeasured board realization: 100kOhm/100nF RES, 0.8VCC threshold, retention exposure 15000mV.ms below 1.5V. These are model-calibration expectations, not universal silicon measurements.',
                 'physical_device':'power-interruption fixture; preserve user nonvolatile data separately'}
+    if name.startswith('boot-'):
+        return {'kind':'software_reasoned' if name.startswith('boot-invalid') else 'documented',
+                'source':'REJ09B0152-0300 §6.3/Table6.2 and §6.4; TN-H8*-A414A/E target geometry',
+                'question':'Does physical 2400-baud boot erase all six blocks when nonblank, accept an odd RAM payload and retain BRR/SCI/GPIO handoff state?',
+                'physical_device':'Boot mode erases all nonblank flash; use only on an authorized sacrificial device.',
+                'limitation':'No manufacturer-ROM instruction count or erase-retry timing is asserted. Invalid lengths echo and wait for reset in the selected bounded-loader inference.'}
     if name.startswith('flash-'):
         return {'kind':'software_reasoned' if name in ('flash-verify-early-latch','flash-module-wake') else 'documented',
                 'source':'REJ09B0152-0300 §§6.2–6.7 and Table21.11; TN-H8*-A414A/E pp.3–4; H8/300H §2.8',
@@ -835,7 +843,7 @@ def main() -> None:
         (args.output/f'{name}.bin').write_bytes(image)
         if timeline: (args.output/f'{name}.csv').write_text(timeline)
         manifest['cases'].append({'name':name,'firmware':f'{name}.bin','sha256':hashlib.sha256(image).hexdigest(),
-                                  'milliseconds':50 if name.startswith('power-') else 1100 if name.startswith('rtc-calendar') else 1000 if name.startswith('flash-erase') else 400 if name=='flash-program-retry' else 23 if name.startswith('sensor-autowake') else 8,'expected':expected,'input':f'{name}.csv' if timeline else None,
+                                  'milliseconds':2200 if name.startswith('boot-') else 50 if name.startswith('power-') else 1100 if name.startswith('rtc-calendar') else 1000 if name.startswith('flash-erase') else 400 if name=='flash-program-retry' else 23 if name.startswith('sensor-autowake') else 8,'expected':expected,'input':f'{name}.csv' if timeline else None,
                                   'input_sha256':hashlib.sha256(timeline.encode()).hexdigest() if timeline else None,
                                   'expectation':expectation_metadata(name)})
     (args.output/'manifest.json').write_text(json.dumps(manifest,indent=2)+'\n')

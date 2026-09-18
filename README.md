@@ -32,6 +32,9 @@ protection, module wake, page programming with per-bit retry/strengthening masks
 and the target-specific EB4/EB5 erase geometry. They require explicit destructive
 test authorization before use on a physical device; emulator execution has no
 such physical effect. Pulse counts are never used as expected hardware results.
+Boot cases drive ordinary 2400-baud RXD levels, upload original odd-length RAM
+programs, and check baud/SCI/GPIO handoff plus six-block erasure. They also cover
+invalid upload lengths using the stated containment inference.
 Power cases distinguish suspended execution, RC reset with retained RAM, and
 volatile loss during sustained undervoltage. Their manifest identifies the
 nominal circuit and retention constants; they are calibration witnesses rather
