@@ -43,6 +43,17 @@ def handler(image: bytes, vector: int, code: str) -> bytes:
 
 
 def cases():
+    p=Program()
+    for a,v in [(0xfffb,0x0c),(0xffc0,0x20),(0xff92,0xfd),(0xff94,0x0f),(0xff95,0x3f)]:p.byte(a,v)
+    for i,a in enumerate([0xff92,0xff94,0xff95]):
+        p.code += bytes((0x6a,8,a>>8,a&255,0x6a,0x88,0xf8,i))
+    p.word(0xff8c,3);p.word(0xff8e,1);p.byte(0xff92,0xff)
+    p.code += bytes.fromhex('6b00ff8e6b80f804')
+    # PWCK=111 parks the counter; live latches and a valid source resume it.
+    p.word(0xff8c,7);p.word(0xff8e,2);p.byte(0xff94,2)
+    p.code += bytes.fromhex('6a08ffd4e80447f86a88f806')
+    yield 'aec-live-pwm-and-reserved-fields',p.finish(),{'ram':{'f800':'fd0f3f','f804':'000004'}},None
+
     p=Program();p.byte(0xfffa,7);p.byte(0xf0d0,0x78);p.byte(0xf0d1,0x42)
     p.code += bytes.fromhex('6a08f0d16a88f800')
     p.byte(0xf0d0,0xf8);p.byte(0xf0d0,0xfe)
@@ -651,6 +662,10 @@ def expectation_metadata(name: str) -> dict:
     if name.startswith('predecrement'):
         return {'kind':'documented','source':'ADE-602-053A MOV.B/W/L usage notes pp.121/123/125',
                 'question':'Does predecrement precede sampling an aliased source field?'}
+    if name == 'aec-live-pwm-and-reserved-fields':
+        return {'kind':'software_reasoned','source':'REJ09B0152-0300 §§13.3–13.6',
+                'question':'Do documented writable reserved fields read back, and do live PWM changes resume physical output after a disconnected source?',
+                'limitation':'PWCK111 disconnects the clock and ECPWDR reads zero in the selected local model; these values are not guaranteed by the manual.'}
     if name.startswith('aec'):
         return {'kind':'documented','source':'REJ09B0152-0300 §§13.3–13.5',
                 'question':'Do actual package inputs produce the specified AEC count/gate interrupt?'}
