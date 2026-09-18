@@ -10,6 +10,7 @@ from pathlib import Path
 from flash import cases as flash_cases
 from boot import cases as boot_cases
 from decimal_adjust import cases as decimal_cases
+from sensor_i2c import cases as sensor_i2c_cases
 
 class Program:
     def __init__(self) -> None:
@@ -49,6 +50,7 @@ def cases():
     yield from flash_cases()
     yield from boot_cases()
     yield from decimal_cases(Program)
+    yield from sensor_i2c_cases(Program)
     # Entry count lives in retained RAM. These physical conditions distinguish
     # a paused CPU, RES re-entry with retained RAM, and volatile charge loss.
     for name,absence,expected in [('short-retention',1000,1),
@@ -852,6 +854,11 @@ def expectation_metadata(name: str) -> dict:
                 'source':'REJ09B0213-0300 pp.76-79 DAA/DAS tables; ordinary packed-BCD arithmetic for the twenty omitted carry states',
                 'question':'Do byte results and defined CCR bits agree with every table row, independent incoming N/Z, and actual ADD/ADDX/SUB/SUBX/NEG sequences?',
                 'limitation':'H/V are masked because the manufacturer gives no guaranteed value; carry-table extension is labeled separately.'}
+    if name.startswith('sensor-i2c-'):
+        return {'kind':'software_reasoned' if name=='sensor-i2c-sleep-wake-and-reset' else 'documented',
+                'source':'Bosch BMA150 Rev1.6 §§3.3.3,3.3.6–7,4.1.1,4.2–4.2.1; H8/38602R §8.4',
+                'question':'Do GPIO SDA/clock edges implement the fixed address, paired writes, incrementing reads, ACK protection, aborts and live CSB selection?',
+                'limitation':'Sleep/wake bus ACK and retaining the final reset ACK are circuit inferences; no pad slew or exact sub-edge propagation is asserted.'}
     if name.startswith('sensor-between-conversion-'):
         return {'kind':'software_reasoned','source':'Bosch BMA150 Rev1.6 sections 3.1.3 and 8.1: second-order 1500-Hz analog stage before a 3-kHz ADC scan',
                 'question':'Does a 50-us acceleration pulse between nominal X conversion apertures leave an observable decaying response, while zero input stays zero?',

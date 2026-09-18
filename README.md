@@ -26,7 +26,12 @@ Timer W capture, comparator wake, AEC overflow/gating, NMI, retained prefetch
 under self-modification, division edge cases, direct clock transitions, and SSU
 receive-only/overrun/holding-register behavior, EEPROM programming/reset,
 LCD plane order, column reversal, partial duty, icons, and software reset,
-and sensor address/data pairs and three-wire GPIO reads. A pulse/control pair
+and sensor address/data pairs and three-wire GPIO reads. Four I²C guests use
+the actual P91/P92 GPIO pair with an open-drain SDA release and internal pull-up.
+They check fixed addressing independent of SDO, STOP/repeated START, paired
+writes and incrementing reads, protected ACKs, partial frames, CSB selection,
+sleep/wake and the accepted reset command's final ACK. Sleep/reset ACK choices
+are labeled as circuit inferences. A pulse/control pair
 checks that analog response retains motion between conversion apertures. It uses
 nominal startup/scan phase and asserts detection, without fixing Bosch damping
 or a measured impulse amplitude. The image/shadow case allows analog settling
