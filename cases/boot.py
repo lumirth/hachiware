@@ -27,8 +27,8 @@ def cases():
         "payload and retain BRR/SCI/GPIO handoff state?",
         "physical_device": "Boot mode erases all nonblank flash; use only on an authorized sacrificial "
         "device.",
-        "limitation": "No manufacturer-ROM instruction count or erase-retry timing is asserted. Invalid "
-        "lengths echo and wait for reset in the selected bounded-loader inference.",
+        "limitation": "Checks erase results and documented handoff state. Invalid lengths echo and wait "
+        "for reset under the inferred loader control flow.",
     }
     # The uploaded code initializes its own stack and records state guaranteed
     # at handoff. Both H8 instructions and expectations are literal.

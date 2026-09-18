@@ -188,8 +188,7 @@ def cases():
         "3-kHz ADC scan",
         "question": "Does a 50-us acceleration pulse between nominal X conversion apertures leave an "
         "observable decaying response, while zero input stays zero?",
-        "limitation": "Uses nominal 3-ms startup and T/X/Y/Z phase. Qualitative analog response, not a "
-        "measured Bosch damping or impulse amplitude.",
+        "limitation": "Uses the configured startup and scan phase. Checks that a pulse leaves a decaying response.",
     }
     conditions = {"sensor_startup_us": 3000, "sensor_scan_order": "temperature,x,y,z"}
     for pulse in [False, True]:

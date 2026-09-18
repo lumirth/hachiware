@@ -1,7 +1,4 @@
-"""Original RAM-resident flash diagnostics, from Renesas section 6 and A414A/E.
-
-No emulator code or cell-distribution parameters supply expected observations.
-"""
+"""RAM guests for the flash algorithms in Renesas section 6 and A414A/E."""
 
 from __future__ import annotations
 from diagnostic import Case
@@ -82,8 +79,8 @@ def cases():
         "question": "Do RAM-executed control, pulse, verify, protection and target block operations "
         "preserve the flash contract?",
         "limitation": "Early reads retain the old verify latch; module standby initializes controller "
-        "state and unavailable reads return FF in the selected circuit model. Retry count "
-        "and partial cell thresholds are not asserted.",
+        "state and unavailable reads return FF in the selected circuit model. Programming "
+        "assertions compare the cells after the guest verifies them.",
         "physical_device": "destructive flash modification; explicit sacrificial-device authorization "
         "required",
     }
@@ -211,8 +208,8 @@ def cases():
         evidence={**basis, "kind": "software_reasoned"},
     )
 
-    # The retry mask follows table 6.4: wanted | ~verified. Attempt count is
-    # bounded but never asserted; a physical part need not match a model's speed.
+    # Table 6.4 defines the retry mask as wanted | ~verified. The guest retries
+    # until verification succeeds, with a bound to report failed programming.
     wanted = bytes(i ^ 0xA5 for i in range(128))
     b = Body()
     b.copy(0xA00, 0xF780, 128)

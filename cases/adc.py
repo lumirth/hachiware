@@ -10,8 +10,7 @@ def cases():
         "source": "REJ09B0152-0300 Fig17.1/17.6; lumirth/pw BatterySample and BatteryCheckLow",
         "question": "Does P84 drive qualify battery sensing, with a supply-following AVCC and midpoint "
         "ADC quantization?",
-        "limitation": "Selected nominal sense path has an effective 600 mV drop, not a measured board "
-        "netlist. Pull-up alone does not enable it.",
+        "limitation": "Assumes the configured effective sense drop. P84 must drive high to enable sensing.",
     }
     conditions = {"battery_sense_drop_mv": 600}
     for supply, code in [(3300, 838), (3000, 819), (2700, 796), (2400, 768)]:
@@ -43,8 +42,7 @@ def cases():
         "source": "REJ09B0152-0300 §§17.3–17.4,17.7.3; Fig17.1 sample-and-hold circuit",
         "question": "Do all clock selectors complete, do PMRB/AMR/IEGR qualify physical triggers and "
         "vector38, and does an open mux retain its sampled charge?",
-        "limitation": "Open-mux charge retention is a circuit inference; Full-scale input assumes AVCC at "
-        "or below 3.3 V; no battery-network transfer is asserted.",
+        "limitation": "Charge retention at an open mux follows the sample-and-hold circuit. Full-scale input requires AVCC at or below 3.3 V.",
     }
     p = Program()
     p.byte(0xFFFA, 0x13)

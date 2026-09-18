@@ -81,8 +81,8 @@ def cases():
         evidence=basis,
     )
 
-    # External edges, not completed bytes, enter the package. Test all four
-    # SPI phases, the alternate package mux, and clocked-sync LSB-first.
+    # Drive package edges for all four SPI phases, the alternate pin mux
+    # and the clocked serial mode with the least significant bit first.
     for suffix, mode, mux, four_line in [
         ("mode-0", 0xE0, 0, True),
         ("mode-1", 0xC0, 0, True),

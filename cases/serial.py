@@ -11,8 +11,7 @@ def cases():
         "IrConfigure and IrStartSend for transceiver polarity",
         "question": "Do physical serial pins, corrected framing, status/data transfer, and transceiver "
         "shutdown obey their independent hardware contracts?",
-        "limitation": "IR input pulses have generous timing margins; no analog receiver response or "
-        "measured pulse phase is asserted.",
+        "limitation": "Input pulses allow receiver timing margin. Expectations cover digital framing and pin routing.",
     }
     p = Program()
     for a, v in [

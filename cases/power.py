@@ -11,9 +11,7 @@ def cases():
         "calculation",
         "question": "Do short and sustained rail collapses distinguish stopped execution, RC reset, and "
         "retained or lost volatile data?",
-        "limitation": "Nominal unmeasured board realization: 100kOhm/100nF RES, 0.8VCC threshold, "
-        "retention exposure 15000mV.ms below 1.5V. These are model-calibration "
-        "expectations, not universal silicon measurements.",
+        "limitation": "The configured reset circuit and retention exposure model determine the expected reset and RAM contents.",
         "physical_device": "power-interruption fixture; preserve user nonvolatile data separately",
     }
     conditions = {

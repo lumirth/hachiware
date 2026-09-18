@@ -85,8 +85,7 @@ def cases():
         "question": "Does predecrement precede sampling an aliased source field?",
     }
     # MOV stores must sample an aliased register *after* predecrement.
-    # ADE-602-053A pp.121,123,125. Literal expectations are not obtained
-    # by executing HachiStep or importing its decoder.
+    # ADE-602-053A pp.121,123,125.
     for suffix, opcode, address, expected in [
         ("byte", "6ca2", "f7ff", "f7"),
         ("word", "6da2", "f7fe", "f7fe"),
@@ -141,10 +140,9 @@ def cases():
         "kind": "documented",
         "source": "REJ09B0213-0300 §§2.2.26–2.2.27 pp.83–95",
         "question": "Do all division widths continue with documented operand-sign and zero-divisor flags?",
-        "limitation": "Undefined zero-divisor/overflow destination bits are deliberately not asserted.",
+        "limitation": "Only flags and continued execution have defined expectations for zero divisors and quotient overflow.",
     }
-    # The manual defines these flags and continued execution even when the
-    # quotient/remainder bits are unspecified. Do not certify those bits.
+    # Record the defined flags and a completion marker for each operand pair.
     p = Program()
     divisions = [
         (False, False, 0x1234, 0, 0xF7),

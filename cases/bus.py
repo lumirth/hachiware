@@ -10,9 +10,7 @@ def cases():
         "source": "REJ09B0152-0300 §§2.3.2,2.5–2.6,8.5.1,8.5.3; TN-H8*-A414A/E memory map",
         "question": "Do ordinary lane/alignment/wrap accesses complete without invented faults, and do "
         "comparator-enabled PB pins retain digital read access?",
-        "limitation": "Word-only byte reads select a lane, byte writes do not qualify the word latch, and "
-        "unassigned bus reads are zero in the chosen decoder model. The comparator/ADC mux "
-        "rule is documented.",
+        "limitation": "Byte reads select a word register lane; only word writes qualify its latch. The selected decoder returns zero for unassigned reads. Comparator and ADC pin mux behavior follows the manual.",
     }
     p = Program()
     p.word(0xF0F8, 0x1234)

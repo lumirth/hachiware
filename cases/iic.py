@@ -10,8 +10,7 @@ def cases():
         "source": "REJ09B0152-0300 §16.3–16.5; TN-MC*-A022A/E and A023A/E",
         "question": "Do byte-wide registers, shared-vector interrupt, physical address frames, "
         "read-qualified flags and STOP sequencing follow the IIC2 contract?",
-        "limitation": "Clocked input gives ample filter/setup margin; no inferred subcycle race is "
-        "asserted.",
+        "limitation": "Input edges allow ample filter and setup time.",
     }
     p = Program()
     for i, a in enumerate(range(0xF078, 0xF080)):

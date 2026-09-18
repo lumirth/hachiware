@@ -9,8 +9,8 @@ RTC_EVIDENCE = {
     "source": "REJ09B0152-0300 §§8.1.4,11.3–11.5; REJ06B0514 RCS=1xxx table",
     "question": "Do calendar updates preserve raw digit fields and a pending busy update, and does "
     "TMOW drive P10 independently of RUN?",
-    "limitation": "Busy-write precedence and malformed digit carry are local counter/latch "
-    "inferences; no exact initial busy phase is asserted.",
+    "limitation": "Busy writes use the pending update latches; malformed digits follow the inferred "
+    "counter carry rules.",
 }
 
 
@@ -20,8 +20,7 @@ def cases():
         "source": "REJ09B0152-0300 §§13.3–13.6",
         "question": "Do documented writable reserved fields read back, and do live PWM changes resume "
         "physical output after a disconnected source?",
-        "limitation": "PWCK111 disconnects the clock and ECPWDR reads zero in the selected local model; "
-        "these values are not guaranteed by the manual.",
+        "limitation": "The selected counter circuit disconnects PWCK=111 and reads ECPWDR as zero.",
     }
     p = Program()
     for a, v in [

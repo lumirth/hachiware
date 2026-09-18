@@ -12,8 +12,7 @@ BASIS = {
     "source": "Bosch BMA150 Rev1.6 §§3.3.3,3.3.6–7,4.1.1,4.2–4.2.1; H8/38602R §8.4",
     "question": "Do GPIO SDA/clock edges implement the fixed address, paired writes, incrementing "
     "reads, ACK protection, aborts and live CSB selection?",
-    "limitation": "Sleep/wake bus ACK and retaining the final reset ACK are circuit inferences; no "
-    "pad slew or exact sub-edge propagation is asserted.",
+    "limitation": "Sleep and wake ACK behavior, including retention of the final reset ACK, follows the inferred bus control circuit.",
 }
 
 
@@ -116,7 +115,7 @@ class Bus:
 
 def cases():
     b = Bus(Program)
-    # SDO is not an address strap. Both levels leave address 38 unchanged.
+    # Both SDO levels leave the fixed address 0x38 unchanged.
     for sdo in (False, True):
         b.sdo = sdo
         b.start()

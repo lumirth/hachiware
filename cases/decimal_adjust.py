@@ -2,7 +2,7 @@
 
 REJ09B0213-0300 pp.76/78. Each row is C, high-min/max, H, low-min/max,
 byte to add, resulting C. Ranges are inclusive hexadecimal nibbles.
-The fixture does not import or recreate an emulator's correction predicates.
+These rows and ordinary packed decimal arithmetic define the expectations.
 """
 
 from diagnostic import Case
