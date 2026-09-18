@@ -26,7 +26,12 @@ Timer W capture, comparator wake, AEC overflow/gating, NMI, retained prefetch
 under self-modification, division edge cases, direct clock transitions, and SSU
 receive-only/overrun/holding-register behavior, EEPROM programming/reset,
 LCD plane order, column reversal, partial duty, icons, and software reset,
-and sensor address/data pairs and three-wire GPIO reads. The
+and sensor address/data pairs and three-wire GPIO reads. A pulse/control pair
+checks that analog response retains motion between conversion apertures. It uses
+nominal startup/scan phase and asserts detection, without fixing Bosch damping
+or a measured impulse amplitude. The image/shadow case allows analog settling
+and masks the asynchronous freshness bit when comparing the subsequent pair.
+The
 RAM-resident flash cases cover control gating, delayed verify reads, error
 protection, module wake, page programming with per-bit retry/strengthening masks,
 and the target-specific EB4/EB5 erase geometry. They require explicit destructive

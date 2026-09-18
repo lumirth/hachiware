@@ -323,11 +323,31 @@ def cases():
     p.byte(0xffdc,0);p.send(0x86);p.send(0)
     p.code += bytes.fromhex('6a88f800');p.byte(0xffdc,1)
     p.byte(0xffdc,0);p.send(0x0a);p.send(0x20);p.byte(0xffdc,1)
-    p.code += bytes(6000) # Image reload and several conversions at -1 g.
+    p.code += bytes(14000) # Image reload and analog settling at -1 g.
     for slot,address in [(1,7),(2,6),(3,7)]:
         p.byte(0xffdc,0);p.send(0x80|address);p.send(0)
+        if slot==2:p.code += bytes.fromhex('e8c0') # Freshness can change between these reads.
         p.code += bytes((0x6a,0x88,0xf8,slot));p.byte(0xffdc,1)
-    yield 'sensor-image-keeps-read-pair',p.finish(),{'ram':{'f800':'012001e0'}},'4000,accel,0,0,-1000000\n'
+    yield 'sensor-image-keeps-read-pair',p.finish(),{'ram':{'f800':'012000e0'}},'4000,accel,0,0,-1000000\n'
+
+    for pulse in [False, True]:
+        p=Program()
+        for a,v in [(0xfffb,0x14),(0xf0e0,0x8c),(0xf0e1,0x40),(0xf0e2,0x86),
+                    (0xf0e3,0xc0),(0xffe4,7),(0xffd4,5),(0xf087,8),(0xffec,1),(0xffdc,1)]:
+            p.byte(a,v)
+        p.byte(0xffdc,0);p.send(0x14);p.send(6);p.byte(0xffdc,1) # +/-2 g, 1500 Hz.
+        p.byte(0xffdc,0);p.send(0x15);p.send(0x88);p.byte(0xffdc,1) # Unshadowed MSB reads.
+        p.byte(0xf800,0)
+        p.code += bytes.fromhex('79020200') # Poll through the pulse's decay.
+        loop=len(p.code)
+        p.byte(0xffdc,0);p.send(0x83);p.send(0) # X MSB only; no freshness bit.
+        p.code += bytes.fromhex('e8ff4706') # Any nonzero sample latches the witness.
+        p.byte(0xf800,1)
+        p.byte(0xffdc,1)
+        p.code += bytes.fromhex('1b52') # DEC.W #1,R2; BNE loop.
+        p.code += bytes((0x46,(loop-len(p.code)-2)&255))
+        timeline='3200,accel,1000000,0,1000000\n3250,accel,0,0,1000000\n' if pulse else None
+        yield 'sensor-between-conversion-'+('pulse' if pulse else 'control'),p.finish(),{'ram':{'f800':'01' if pulse else '00'}},timeline
 
     for name,reg14,offset,expected,timeline in [
         ('sensor-factory-defaults',None,None,{'f800':'031496a0960000a20d0e80'},None),
@@ -825,6 +845,10 @@ def expectation_metadata(name: str) -> dict:
         return {'kind':'documented','source':'REJ09B0152-0300 §§8.2,14.3–14.8; TN-H8*-A333B/E corrected five-bit formats; lumirth/pw IrConfigure and IrStartSend for transceiver polarity',
                 'question':'Do physical serial pins, corrected framing, status/data transfer, and transceiver shutdown obey their independent hardware contracts?',
                 'limitation':'IR input pulses have generous timing margins; no analog receiver response or measured pulse phase is asserted.'}
+    if name.startswith('sensor-between-conversion-'):
+        return {'kind':'software_reasoned','source':'Bosch BMA150 Rev1.6 sections 3.1.3 and 8.1: second-order 1500-Hz analog stage before a 3-kHz ADC scan',
+                'question':'Does a 50-us acceleration pulse between nominal X conversion apertures leave an observable decaying response, while zero input stays zero?',
+                'limitation':'Uses nominal 3-ms startup and T/X/Y/Z phase. Qualitative analog response, not a measured Bosch damping or impulse amplitude.'}
     if name.startswith('sensor-'):
         return {'kind':'documented','source':'Bosch BMA150 Rev1.6 register map, §§3.2,3.5,4.1; Bosch bma150_calc_new_offset and set_range',
                 'question':'Do serial transfers, qualification/status, defaults, temperature, and offset/range produce their specified observations?'}
