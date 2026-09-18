@@ -7,6 +7,7 @@ are literal, independently reasoned values. No production Rust is imported.
 from __future__ import annotations
 import argparse, hashlib, json
 from pathlib import Path
+from flash import cases as flash_cases
 
 class Program:
     def __init__(self) -> None:
@@ -43,6 +44,7 @@ def handler(image: bytes, vector: int, code: str) -> bytes:
 
 
 def cases():
+    yield from flash_cases()
     for nop, high in [(False,False),(True,False),(False,True)]:
         p=Program();p.code += bytes.fromhex('f901f8fe6a89ffca')
         if nop:p.code += bytes.fromhex('0000')
@@ -709,6 +711,12 @@ def cases():
 
 
 def expectation_metadata(name: str) -> dict:
+    if name.startswith('flash-'):
+        return {'kind':'software_reasoned' if name in ('flash-verify-early-latch','flash-module-wake') else 'documented',
+                'source':'REJ09B0152-0300 §§6.2–6.7 and Table21.11; TN-H8*-A414A/E pp.3–4; H8/300H §2.8',
+                'question':'Do RAM-executed control, pulse, verify, protection and target block operations preserve the flash contract?',
+                'limitation':'Early reads retain the old verify latch; module standby initializes controller state and unavailable reads return FF in the selected circuit model. Retry count and partial cell thresholds are not asserted.',
+                'physical_device':'destructive flash modification; explicit sacrificial-device authorization required'}
     if name.startswith('irq-') or name == 'exception-ccr-stack-word':
         return {'kind':'documented','source':'REJ09B0152-0300 §§3.7–3.8.4,10.4; H8/300H software manual §1.1; H8/3318 §2.3.2',
                 'question':'Do exception stack contents, enable-clear admission, source-clear cancellation and pin-selection flag settling follow the target contract?',
@@ -808,7 +816,7 @@ def main() -> None:
         (args.output/f'{name}.bin').write_bytes(image)
         if timeline: (args.output/f'{name}.csv').write_text(timeline)
         manifest['cases'].append({'name':name,'firmware':f'{name}.bin','sha256':hashlib.sha256(image).hexdigest(),
-                                  'milliseconds':1100 if name.startswith('rtc-calendar') else 23 if name.startswith('sensor-autowake') else 8,'expected':expected,'input':f'{name}.csv' if timeline else None,
+                                  'milliseconds':1100 if name.startswith('rtc-calendar') else 1000 if name.startswith('flash-erase') else 400 if name=='flash-program-retry' else 23 if name.startswith('sensor-autowake') else 8,'expected':expected,'input':f'{name}.csv' if timeline else None,
                                   'input_sha256':hashlib.sha256(timeline.encode()).hexdigest() if timeline else None,
                                   'expectation':expectation_metadata(name)})
     (args.output/'manifest.json').write_text(json.dumps(manifest,indent=2)+'\n')

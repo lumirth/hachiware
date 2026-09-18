@@ -27,6 +27,12 @@ under self-modification, division edge cases, direct clock transitions, and SSU
 receive-only/overrun/holding-register behavior, EEPROM programming/reset,
 LCD plane order, column reversal, partial duty, icons, and software reset,
 and sensor address/data pairs and three-wire GPIO reads. The
+RAM-resident flash cases cover control gating, delayed verify reads, error
+protection, module wake, page programming with per-bit retry/strengthening masks,
+and the target-specific EB4/EB5 erase geometry. They require explicit destructive
+test authorization before use on a physical device; emulator execution has no
+such physical effect. Pulse counts are never used as expected hardware results.
+The
 `spec/register_access.tsv` table independently transcribes 95 physical access
 widths and state counts from REJ09B0152-0300 §20.1. It is reference data for
 diagnostics, not generated from a bus decoder.
