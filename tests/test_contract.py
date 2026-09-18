@@ -66,13 +66,12 @@ class Conformance(unittest.TestCase):
             {"display_on": 1},
             {"ir_events": True},
             {"pixels": {"1800": "01"}},
-            {"pixels": {"0000": "04"}},
             {"icons": {"0100": "00"}},
         ]:
             with self.subTest(expected=expected), self.assertRaises(ValueError):
                 manifest.validate_expected(expected)
         manifest.validate_expected(
-            {"ram": {"f780": "00", "ff7f": "ab"}, "interrupt_entries": 1}
+            {"ram": {"f780": "00", "ff7f": "ab"}, "pixels": {"0000": "0080ff"}, "interrupt_entries": 1}
         )
 
     def test_all_firmware_timeline_and_eeprom_inputs_are_hashed(self):

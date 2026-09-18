@@ -49,8 +49,6 @@ def validate_expected(expected: dict) -> None:
             offset = int(address, 16) - start
             if not 0 <= offset <= length - len(bytes.fromhex(text)):
                 raise ValueError(f"{domain}: expected range outside physical storage")
-            if domain == "pixels" and any(shade > 3 for shade in bytes.fromhex(text)):
-                raise ValueError("pixels: expected two-bit shade codes")
     for key in expected.keys() & SCALARS:
         value = expected[key]
         if key in {"display_on", "sleeping"}:
