@@ -1,200 +1,348 @@
 #!/usr/bin/env python3
-"""Run Pokéwalker diagnostics through an emulator or hardware adapter.
+"""Run selected diagnostics and retain observations from failures."""
 
-Inputs and expectations are validated before any guest is run. A measured result,
-software expectation, unresolved question, and runner failure remain distinct.
-The adapter never imports CPU semantics or generates expected values.
-"""
 from __future__ import annotations
 
 import argparse
 import hashlib
 import json
+import math
+import os
 from pathlib import Path
-import re
+import shutil
+import signal
 import subprocess
 import sys
-import tempfile
+import time
 
-TARGET = 'H8/38606F'
-KINDS = {'documented', 'software_reasoned', 'hardware_measured', 'regression', 'unresolved'}
-COUNTS = {'nv_commits', 'ir_events', 'interrupt_entries'}
-SCALARS = COUNTS | {'er0', 'display_on', 'display_start', 'sleeping'}
-STORAGE = {'ram': (0xf780, 2048), 'eeprom': (0, 65536), 'lcd': (0, 4096),
-           'icons': (0, 256), 'pixels': (0, 6144)}
+from diagnostic import SCALARS, STORAGE, listing, select
+from manifest import load_manifest, required_inputs
+
+ROOT = Path(__file__).resolve().parent
 
 
-def checked_file(root: Path, name: str, expected_hash: str, size: int | None = None) -> Path:
-    if not isinstance(name, str) or Path(name).name != name or name in {'', '.', '..'}:
-        raise ValueError('fixture members must be simple filenames')
-    path = root / name
-    if path.resolve().parent != root.resolve():
-        raise ValueError('fixture member escapes its directory')
-    data = path.read_bytes()
-    if size is not None and len(data) != size:
-        raise ValueError(f'{name}: expected {size} bytes, got {len(data)}')
-    if hashlib.sha256(data).hexdigest() != expected_hash:
-        raise ValueError(f'{name}: fixture SHA-256 mismatch')
-    return path
-
-
-def validate_expected(expected: dict) -> None:
-    if not isinstance(expected, dict) or expected.keys() - (SCALARS | STORAGE.keys()):
-        raise ValueError('unknown or malformed expected-result key')
-    for domain, (start, length) in STORAGE.items():
-        entries = expected.get(domain, {})
-        if not isinstance(entries, dict):
-            raise ValueError(f'{domain}: expectations must map addresses to hex bytes')
-        for address, text in entries.items():
-            if not isinstance(address, str) or re.fullmatch('[0-9a-fA-F]{4}', address) is None:
-                raise ValueError(f'{domain}: invalid address')
-            if not isinstance(text, str) or re.fullmatch('(?:[0-9a-fA-F]{2})+', text) is None:
-                raise ValueError(f'{domain}: expected nonempty hex bytes')
-            offset = int(address, 16) - start
-            if not 0 <= offset <= length - len(bytes.fromhex(text)):
-                raise ValueError(f'{domain}: expected range outside physical storage')
-            if domain == 'pixels' and any(shade > 3 for shade in bytes.fromhex(text)):
-                raise ValueError('pixels: expected two-bit shade codes')
-    for key in expected.keys() & SCALARS:
-        value = expected[key]
-        if key in {'display_on', 'sleeping'}:
-            if type(value) is not bool:
-                raise ValueError(f'{key}: expected Boolean')
-        elif type(value) is not int or value < 0:
-            raise ValueError(f'{key}: expected nonnegative integer')
-        if key == 'er0' and value > 0xffffffff:
-            raise ValueError('ER0 does not fit 32 bits')
-        if key == 'display_start' and value > 127:
-            raise ValueError('display start does not fit seven bits')
-
-
-def load_manifest(fixtures: Path) -> dict:
-    manifest = json.loads((fixtures / 'manifest.json').read_text())
-    if manifest.get('schema') != 2:
-        raise ValueError('expected fixture schema 2; rebuild fixtures with build.py')
-    if not isinstance(manifest.get('target'), str) or not manifest['target']:
-        raise ValueError('missing fixture target')
-    eeprom = manifest['eeprom']
-    checked_file(fixtures, eeprom['file'], eeprom['sha256'], 65536)
-    cases = manifest['cases']
-    if not isinstance(cases, list) or not cases:
-        raise ValueError('empty or malformed fixture corpus')
-    names = set()
-    for case in cases:
-        name = case['name']
-        if not isinstance(name, str) or re.fullmatch('[a-z0-9-]+', name) is None or name in names:
-            raise ValueError('duplicate or unsafe fixture identifier')
-        names.add(name)
-        checked_file(fixtures, case['firmware'], case['sha256'], 49152)
-        if case.get('input') is not None:
-            checked_file(fixtures, case['input'], case['input_sha256'])
-        elif case.get('input_sha256') is not None:
-            raise ValueError('timeline hash supplied without a timeline')
-        milliseconds = case['milliseconds']
-        if type(milliseconds) is not int or not 1 <= milliseconds <= 120000:
-            raise ValueError('diagnostic duration must be 1..120000 ms')
-        basis = case['expectation']
-        if basis.get('kind') not in KINDS or not basis.get('question') or not basis.get('source'):
-            raise ValueError('missing expectation provenance/question')
-        if basis['kind'] == 'hardware_measured' and not basis.get('observation_id'):
-            raise ValueError('a hardware expectation must identify its captured observation')
-        validate_expected(case['expected'])
-        if not case['expected'] and basis['kind'] != 'unresolved':
-            raise ValueError('an established test must make an assertion')
-    return manifest
-
-
-def compare(expected: dict, report: dict, output: Path, milliseconds: int) -> list[str]:
+def compare(expected: dict, report: dict, output: Path) -> list[str]:
+    if report["fault"] is not None:
+        if not isinstance(report["fault"], str):
+            raise ValueError("fault must be a description or null")
+        return [f"guest execution stopped: {report['fault']}"]
+    if report["completed"] is not True:
+        raise ValueError("adapter did not complete the observation period")
     failures = []
-    if report['fault'] is not None:
-        failures.append(f'model fault: {report["fault"]}')
-    expected_raw = (milliseconds << 64) // 1000
-    if (int(report['time_raw']) != expected_raw or int(report['requested_time_raw']) != expected_raw
-            or report['time_us'] != (expected_raw * 1_000_000 >> 64)):
-        failures.append('requested exclusive horizon was not reached')
     for domain, (start, size) in STORAGE.items():
-        if domain not in expected and domain not in {'ram', 'eeprom'}:
+        if domain not in expected:
             continue
-        data = (output / f'{domain}.bin').read_bytes()
+        data = (output / f"{domain}.bin").read_bytes()
         if len(data) != size:
-            raise ValueError(f'runner exported wrong {domain} size')
-        for address, text in expected.get(domain, {}).items():
+            raise ValueError(f"adapter exported wrong {domain} size")
+        for address, text in expected[domain].items():
             offset = int(address, 16) - start
             wanted = bytes.fromhex(text)
-            actual = data[offset:offset+len(wanted)]
+            actual = data[offset : offset + len(wanted)]
             if actual != wanted:
-                failures.append(f'{domain}[{address}]: expected {wanted.hex()}, got {actual.hex()}')
+                failures.append(
+                    f"{domain}[{address}]: expected {wanted.hex()}, got {actual.hex()}"
+                )
     for key in expected.keys() & SCALARS:
-        actual = report['er'][0] if key == 'er0' else report[key]
+        actual = report[key]
+        if type(actual) is not type(expected[key]):
+            raise ValueError(f"adapter exported wrong {key} type")
         if actual != expected[key]:
-            failures.append(f'{key}: expected {expected[key]}, got {actual}')
+            failures.append(f"{key}: expected {expected[key]}, got {actual}")
     return failures
+
+
+def applicability(
+    case: dict, capabilities: dict, target: str, fixtures: Path
+) -> list[str]:
+    reasons = []
+    if capabilities["target"] != target:
+        reasons.append(
+            f"target requires {target}; adapter provides {capabilities['target']}"
+        )
+    for field in sorted(case["expected"].keys() - set(capabilities["observations"])):
+        reasons.append(f"observation unavailable: {field}")
+    inputs = required_inputs(fixtures / case["input"] if case["input"] else None)
+    for kind in sorted(inputs - set(capabilities["inputs"])):
+        reasons.append(f"input unavailable: {kind}")
+    for name, wanted in case["conditions"].items():
+        actual = capabilities["conditions"].get(name)
+        if actual != wanted or isinstance(actual, bool) != isinstance(wanted, bool):
+            reasons.append(
+                f"condition {name}: requires {wanted!r}, adapter provides {actual!r}"
+            )
+    return reasons
+
+
+def checkout(directory: Path) -> dict:
+    try:
+        commit = subprocess.check_output(
+            ["git", "-C", str(directory), "rev-parse", "HEAD"],
+            text=True,
+            stderr=subprocess.DEVNULL,
+        ).strip()
+        changes = subprocess.check_output(
+            ["git", "-C", str(directory), "status", "--porcelain"],
+            text=True,
+            stderr=subprocess.DEVNULL,
+        ).splitlines()
+        return {"commit": commit, "dirty": bool(changes), "changes": changes}
+    except (OSError, subprocess.CalledProcessError):
+        return {"commit": None, "dirty": None}
+
+
+def identity(path: Path) -> dict:
+    return {"path": str(path), "sha256": hashlib.sha256(path.read_bytes()).hexdigest()}
+
+
+def write_json(path: Path, value) -> None:
+    with path.open("x", encoding="utf-8") as stream:
+        json.dump(value, stream, indent=2)
+        stream.write("\n")
+
+
+def invoke(command: list[str], directory: Path, timeout: float) -> int:
+    """Keep the command and both output streams even after a timeout."""
+    write_json(directory / "command.json", command)
+    with (
+        (directory / "stdout.log").open("xb") as stdout,
+        (directory / "stderr.log").open("xb") as stderr,
+    ):
+        with subprocess.Popen(
+            command, stdout=stdout, stderr=stderr, start_new_session=os.name == "posix"
+        ) as process:
+            try:
+                return process.wait(timeout=timeout)
+            except subprocess.TimeoutExpired:
+                # The adapter may have started an emulator process of its own.
+                if os.name == "posix":
+                    try:
+                        os.killpg(process.pid, signal.SIGKILL)
+                    except ProcessLookupError:
+                        pass
+                else:
+                    try:
+                        subprocess.run(
+                            ["taskkill", "/PID", str(process.pid), "/T", "/F"],
+                            stdout=subprocess.DEVNULL,
+                            stderr=subprocess.DEVNULL,
+                            check=False,
+                            timeout=5,
+                        )
+                    except (OSError, subprocess.TimeoutExpired):
+                        pass
+                    finally:
+                        if process.poll() is None:
+                            process.kill()
+                process.wait()
+                raise
+
+
+def describe(command: list[str], directory: Path, timeout: float) -> dict:
+    directory.mkdir()
+    if invoke([*command, "--describe"], directory, timeout):
+        raise ValueError(f"adapter description failed; see {directory}")
+    caps = json.loads((directory / "stdout.log").read_text())
+    if not isinstance(caps, dict):
+        raise ValueError("adapter description must be an object")
+    if not isinstance(caps.get("target"), str) or not caps["target"]:
+        raise ValueError("adapter must identify its target")
+    for key in ("observations", "inputs"):
+        if not isinstance(caps.get(key), list) or any(
+            not isinstance(v, str) for v in caps[key]
+        ):
+            raise ValueError(f"adapter must list available {key}")
+    if not isinstance(caps.get("conditions"), dict):
+        raise ValueError("adapter must describe its configured conditions")
+    return caps
+
+
+def run_case(
+    case: dict,
+    command: list[str],
+    fixtures: Path,
+    eeprom: str,
+    directory: Path,
+    timeout: float,
+    keep_passed: bool,
+) -> dict:
+    directory.mkdir(parents=True)
+    output = directory / "observations"
+    command = [
+        *command,
+        "--firmware",
+        str(fixtures / case["firmware"]),
+        "--eeprom",
+        str(fixtures / eeprom),
+        "--milliseconds",
+        str(case["milliseconds"]),
+        "--out",
+        str(output),
+    ]
+    for observation in sorted(case["expected"]):
+        command += ["--observe", observation]
+    if case["input"]:
+        command += ["--input", str(fixtures / case["input"])]
+    started = time.monotonic()
+    try:
+        returncode = invoke(command, directory, timeout)
+        if returncode and not (output / "observations.json").is_file():
+            status, failures = (
+                "runner_error",
+                [f"adapter exited with status {returncode}"],
+            )
+        else:
+            report = json.loads((output / "observations.json").read_text())
+            failures = compare(case["expected"], report, output)
+            if returncode and not failures:
+                raise ValueError(
+                    f"adapter exited with status {returncode} after reporting completion"
+                )
+            status = "fail" if failures else "pass"
+    except (
+        OSError,
+        ValueError,
+        KeyError,
+        TypeError,
+        subprocess.TimeoutExpired,
+    ) as error:
+        status, failures = "runner_error", [str(error)]
+    result = {
+        "status": status,
+        "failures": failures,
+        "wall_seconds": time.monotonic() - started,
+    }
+    if status == "pass" and not keep_passed:
+        shutil.rmtree(directory)
+    else:
+        result["artifacts"] = str(directory)
+    return result
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--adapter', type=Path, required=True)
-    parser.add_argument('--runner', type=Path, required=True)
-    parser.add_argument('--fixtures', type=Path, required=True)
-    parser.add_argument('--report', type=Path)
+    parser.add_argument(
+        "--adapter", type=Path, help="adapter executable or Python script"
+    )
+    parser.add_argument(
+        "--runner", type=Path, help="emulator executable, if the adapter needs one"
+    )
+    parser.add_argument("--fixtures", type=Path, required=True)
+    parser.add_argument(
+        "--out", type=Path, default=Path("out/run"), help="new report directory"
+    )
+    parser.add_argument(
+        "--case",
+        action="append",
+        default=[],
+        metavar="PATTERN",
+        help="select a name or quoted shell pattern; repeat to combine",
+    )
+    parser.add_argument(
+        "--list", action="store_true", help="list selected cases without executing"
+    )
+    parser.add_argument(
+        "--timeout",
+        type=float,
+        default=30,
+        metavar="SECONDS",
+        help="wall time allowed per adapter invocation (default: 30)",
+    )
+    parser.add_argument(
+        "--keep-passed", action="store_true", help="also retain successful observations"
+    )
     args = parser.parse_args()
-    runner, fixtures = args.runner.resolve(), args.fixtures.resolve()
-    adapter = args.adapter.resolve()
-    invocation = [sys.executable, str(adapter)] if adapter.suffix == '.py' else [str(adapter)]
+    if not math.isfinite(args.timeout) or args.timeout <= 0:
+        parser.error("--timeout must be a positive finite number")
+    fixtures = args.fixtures.resolve()
     manifest = load_manifest(fixtures)
-    if args.report and args.report.exists():
-        raise FileExistsError(args.report)
-    results = []
-    with tempfile.TemporaryDirectory(prefix='hachiware-') as directory:
-        for case in manifest['cases']:
-            failures = []
-            status = 'not_applicable' if manifest['target'] != TARGET else 'pass'
-            if case['expectation']['kind'] == 'unresolved':
-                status = 'unknown'
-            if status == 'pass':
-                output = Path(directory) / case['name']
-                command = [*invocation, '--runner', str(runner), '--firmware', str(fixtures / case['firmware']),
-                           '--eeprom', str(fixtures / manifest['eeprom']['file']),
-                           '--milliseconds', str(case['milliseconds']), '--out', str(output)]
-                if case.get('input'):
-                    command += ['--input', str(fixtures / case['input'])]
-                try:
-                    process = subprocess.run(command, text=True, capture_output=True, timeout=30)
-                    if process.returncode:
-                        if (output / 'observations.json').exists():
-                            status = 'fail' # includes explicit unsupported guest behavior
-                        else:
-                            status = 'runner_error'
-                        failures.append(process.stdout + process.stderr)
-                    else:
-                        report = json.loads((output / 'observations.json').read_text())
-                        failures = compare(case['expected'], report, output, case['milliseconds'])
-                        if failures:
-                            status = 'fail'
-                except (OSError, ValueError, KeyError, subprocess.TimeoutExpired) as error:
-                    status, failures = 'runner_error', [str(error)]
-            result = {'case': case['name'], 'status': status, 'passed': status == 'pass',
-                      'expectation': case['expectation'], 'failures': failures}
-            results.append(result)
-            print(status.upper() + ' ' + case['name'])
-            for failure in failures:
-                print(failure)
-    counts = {status: sum(r['status'] == status for r in results)
-              for status in ['pass', 'fail', 'unknown', 'not_applicable', 'runner_error']}
-    summary = {'schema': 2, 'kind': 'adapter results; provenance is recorded per case',
-               'fixture_manifest_sha256': hashlib.sha256((fixtures/'manifest.json').read_bytes()).hexdigest(),
-               'target': TARGET, 'counts': counts, 'results': results}
-    if args.report:
-        with args.report.open('x') as file:
-            json.dump(summary, file, indent=2)
-            file.write('\n')
-    if counts['fail'] or counts['runner_error']:
+    selected = select(manifest["cases"], args.case)
+    if args.list:
+        listing(selected)
+        return
+    if args.adapter is None:
+        parser.error("--adapter is required for execution")
+    adapter = args.adapter.resolve()
+    command = (
+        [sys.executable, str(adapter)] if adapter.suffix == ".py" else [str(adapter)]
+    )
+    source = {
+        "suite": checkout(ROOT),
+        "suite_runner": identity(Path(__file__).resolve()),
+        "adapter": {**identity(adapter), "checkout": checkout(adapter.parent)},
+        "runner": identity(args.runner.resolve()) if args.runner else None,
+        "python": sys.version,
+    }
+    if args.runner:
+        command += ["--runner", str(args.runner.resolve())]
+    out = args.out.resolve()
+    out.mkdir(parents=True, exist_ok=False)
+    summary = {
+        "source": source,
+        "target": manifest["target"],
+        "selection": args.case,
+        "fixture_manifest_sha256": hashlib.sha256(
+            (fixtures / "manifest.json").read_bytes()
+        ).hexdigest(),
+        "results": [],
+    }
+    try:
+        capabilities = describe(command, out / "adapter", args.timeout)
+        summary["adapter_capabilities"] = capabilities
+        for case in selected:
+            reasons = applicability(case, capabilities, manifest["target"], fixtures)
+            if case["expectation"]["kind"] == "unresolved":
+                outcome = {
+                    "status": "unknown",
+                    "failures": ["expectation is unresolved"],
+                }
+            elif reasons:
+                outcome = {"status": "not_applicable", "failures": reasons}
+            else:
+                outcome = run_case(
+                    case,
+                    command,
+                    fixtures,
+                    manifest["eeprom"]["file"],
+                    out / "cases" / case["name"],
+                    args.timeout,
+                    args.keep_passed,
+                )
+            result = {
+                "case": case["name"],
+                "expectation": case["expectation"],
+                "conditions": case["conditions"],
+                **outcome,
+            }
+            summary["results"].append(result)
+            print(f"{result['status'].upper()} {case['name']}", flush=True)
+            for failure in result["failures"]:
+                print(f"  {failure}", flush=True)
+    except (
+        OSError,
+        ValueError,
+        KeyError,
+        TypeError,
+        subprocess.TimeoutExpired,
+    ) as error:
+        summary["runner_error"] = str(error)
+    finally:
+        summary["counts"] = {
+            status: sum(r["status"] == status for r in summary["results"])
+            for status in ["pass", "fail", "unknown", "not_applicable", "runner_error"]
+        }
+        write_json(out / "results.json", summary)
+    print(f"Report: {out / 'results.json'}")
+    counts = summary["counts"]
+    if summary.get("runner_error"):
+        raise SystemExit(summary["runner_error"])
+    if counts["fail"] or counts["runner_error"]:
         raise SystemExit(1)
-    if counts['unknown'] or counts['not_applicable']:
-        raise SystemExit(2) # unresolved/non-applicable is never silently green
+    if counts["unknown"] or counts["not_applicable"]:
+        raise SystemExit(2)
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     try:
         main()
     except (OSError, ValueError, KeyError, TypeError) as error:

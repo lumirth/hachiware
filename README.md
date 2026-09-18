@@ -1,114 +1,118 @@
 # hachiware
 
-Pokéwalker hardware diagnostics, independent of any emulator implementation.
-Cases contain guest instructions, physical input timelines, and literal expected
-observations derived from manuals or reasoned hardware behavior. The suite does
-not import an emulator to calculate its answers.
+Pokéwalker hardware diagnostics for emulators and physical test setups. Each case
+contains an original guest program, any physical input timeline, and expected
+observations supported by manuals, firmware evidence, measurements or inference.
+Emulator adapters belong in their respective projects.
+
+## Build and run
+
+Use [uv](https://docs.astral.sh/uv/getting-started/installation/) to select the Python
+version in `.python-version`. The tools use only the standard library and also run
+with Python 3.10 or newer. The first uv invocation may download Python.
 
 ```sh
-python3 -m unittest discover -s tests
-python3 build.py out/fixtures
-python3 run.py --adapter ../hachistep-starter/tools/hachiware_adapter.py \
-  --runner ../hachistep-starter/target/release/hachistep \
-  --fixtures out/fixtures --report out/results.json
+uv run build.py --list --case 'adc-*'
+uv run build.py out/fixtures
+uv run run.py --fixtures out/fixtures \
+  --adapter ../hachistep-starter/tools/hachiware_adapter.py \
+  --runner ../hachistep-starter/target/release/hachistep --out out/run-1
 ```
 
-Python 3.10+ and its standard library are sufficient. Output paths must be new.
-An adapter belongs with its emulator and translates observations into the small
-contract below. A physical runner can implement the same contract where the
-experiment is applicable.
+Pass `--case NAME` or a quoted pattern to build or run a selection. Repeat it to
+combine selections. A pattern that matches nothing is an error. Both commands
+support `--list`, which shows each selected case's purpose, sources and conditions
+without executing it. Build an emulator executable separately before running cases.
 
-The ROMs exercise register aliases, arithmetic flags, call/return,
-RAM execution, aliased predecrement stores, EEPROM page wrap, infrared TX/RX,
-SCI/GPIO optical routing, five-bit serial formats, error-byte/overrun handling,
-and external synchronous transmit/receive,
-Timer W capture, comparator wake, AEC overflow/gating, NMI, retained prefetch
-under self-modification, division edge cases, direct clock transitions, and SSU
-receive-only/overrun/holding-register behavior, EEPROM programming/reset,
-LCD plane order, column reversal, partial duty, icons, and software reset,
-and sensor address/data pairs and three-wire GPIO reads. Four I²C guests use
-the actual P91/P92 GPIO pair with an open-drain SDA release and internal pull-up.
-They check fixed addressing independent of SDO, STOP/repeated START, paired
-writes and incrementing reads, protected ACKs, partial frames, CSB selection,
-sleep/wake and the accepted reset command's final ACK. Sleep/reset ACK choices
-are labeled as circuit inferences. A pulse/control pair
-checks that analog response retains motion between conversion apertures. It uses
-nominal startup/scan phase and asserts detection, without fixing Bosch damping
-or a measured impulse amplitude. The image/shadow case allows analog settling
-and masks the asynchronous freshness bit when comparing the subsequent pair.
-The
-RAM-resident flash cases cover control gating, delayed verify reads, error
-protection, module wake, page programming with per-bit retry/strengthening masks,
-and the target-specific EB4/EB5 erase geometry. They require explicit destructive
-test authorization before use on a physical device; emulator execution has no
-such physical effect. Pulse counts are never used as expected hardware results.
-Boot cases drive ordinary 2400-baud RXD levels, upload original odd-length RAM
-programs, and check baud/SCI/GPIO handoff plus six-block erasure. They also cover
-invalid upload lengths using the stated containment inference.
-Power cases distinguish suspended execution, RC reset with retained RAM, and
-volatile loss during sustained undervoltage. Their manifest identifies the
-nominal circuit and retention constants; they are calibration witnesses rather
-than claims that every physical unit has those exact values.
-The
-`spec/register_access.tsv` table independently transcribes 95 physical access
-widths and state counts from REJ09B0152-0300 §20.1. It is reference data for
-diagnostics, not generated from a bus decoder.
+Every output directory must be new. The runner writes `results.json`, records the
+suite checkout, adapter and executable identities, and checks fixture hashes before
+execution. Failures retain observations, stdout, stderr and the exact command under
+`cases/NAME/` in the run directory. `--keep-passed` retains successful runs too.
+`--timeout SECONDS` controls the wall time allowed for each adapter invocation.
+These durations include process startup and export; use an emulator's benchmark tools
+for performance measurements.
 
-Decimal-adjust guests sweep all 364 DAA and 380 DAS operand/H/C combinations
-in the manufacturer tables with incoming N/Z clear and set. They mask undefined
-H/V instead of locking in a particular ALU implementation. A separate arithmetic
-case covers ADD/ADDX/SUB/SUBX/NEG and twenty valid carry states omitted by the
-DAA table's printed ranges, with their basis labeled as decimal arithmetic.
+Results distinguish `pass`, `fail`, `unknown`, `not_applicable` and `runner_error`.
+Exit status 0 means every selected case passed, 1 means an assertion or runner failed,
+and 2 means expectations or applicability were incomplete. Missing observations,
+unsupported inputs and mismatched conditions explain why a case cannot run.
 
-Each manifest case identifies its target, input hashes, observation period,
-question, expected results, and their basis. Existing cases are documented or
-reasoned expectations; no physical captures are claimed. New observations should
-cite the capture and its setup. Cases involving destructive flash or power-loss
-experiments must say so before any physical runner executes them.
+## Maintaining cases
+
+`cases/` groups diagnostics by hardware mechanism. Keep each program's expected
+observations, duration, conditions and explanation beside its definition. Share narrow
+instruction encoders through `cases/h8.py`. A module can generate related cases from
+a table. Register a new module in `cases/__init__.py`.
+
+A `Case` records the program, expected values, optional input timeline, and evidence.
+Use `conditions` for numerical assumptions that affect the result, such as the reset
+circuit or battery sensing voltage drop. The runner compares these requirements with
+the adapter's configured conditions before executing the case. An inference can support
+a test; explain the mechanism and the circumstances in which its expectation applies.
+A measurement must identify its capture and setup.
+
+Keep diagnostic sources, literal expectations and curated reference data in Git.
+`spec/register_access.tsv` transcribes access widths and state counts from the hardware
+manual. Generated ROMs, manifests, reports and exploratory captures belong under ignored
+`out/`. Preserve a hardware capture with its case when it becomes supporting reference
+data, subject to its size and redistribution terms. Retail saves and an emulator's
+regression baselines belong with that emulator's integration workflow.
+
+After changing the builder or runner, run:
+
+```sh
+uv run -m unittest discover -s tests -v
+```
+
+After changing a case, rebuild its fixtures and run the affected selection through an
+available adapter. Expected results must come from the case's stated evidence. A result
+reported by the emulator under test cannot establish that emulator's hardware accuracy.
 
 ## Adapter contract
 
-The runner invokes the adapter with these arguments:
+The runner first calls `ADAPTER [--runner EXECUTABLE] --describe`. A Python adapter
+uses the runner's Python interpreter. Its stdout must contain a JSON object with:
+
+- `target`: the target identifier, currently `H8/38606F` on the Pokéwalker board.
+- `observations`: available storage and scalar fields from the table below.
+- `inputs`: supported timeline inputs, such as `ir`, `supply` or `digital:p31`.
+- `conditions`: configured quantities, using the names and units required by cases.
+
+A case executes with these arguments:
 
 ```text
---runner EXECUTABLE --firmware FILE --eeprom FILE
+[--runner EXECUTABLE] --firmware FILE --eeprom FILE
 --milliseconds INTEGER [--input CSV] --out NEW_DIRECTORY
+--observe FIELD [--observe FIELD ...]
 ```
 
-The adapter runs the supplied guest to the exclusive requested endpoint and
-exports `ram.bin` (2,048 bytes, base `0xf780`), `eeprom.bin` (65,536 bytes), and
-`observations.json` with these hardware observations:
+The adapter applies timestamped inputs and completes the requested observation period.
+The endpoint is exclusive. It creates `observations.json` with `completed: true`,
+`fault: null`, and the requested scalar fields. A guest execution fault supplies a
+`fault` description. An incomplete observation period is a runner error. The adapter
+owns conversion to its emulator's clock representation and verifies completion using
+that representation.
 
-| Field | Meaning |
+| Observation | Representation |
 | --- | --- |
-| `fault` | `null`, or a description of why guest execution stopped |
-| `time_raw`, `requested_time_raw` | Decimal strings of unsigned 64.64 seconds |
-| `time_us` | Truncated elapsed microseconds |
-| `er` | Eight unsigned 32-bit CPU registers |
-| `sleeping` | CPU sleep state |
-| `interrupt_entries` | Accepted interrupt entries |
-| `nv_commits` | Completed nonvolatile operations |
-| `ir_events` | Infrared output transitions |
-| `display_on`, `display_start` | LCD enable and start-line state |
+| `ram` | `ram.bin`, 2,048 bytes starting at address `0xf780`. |
+| `eeprom` | `eeprom.bin`, 65,536 bytes. |
+| `lcd` | `lcd.bin`, 4,096 bytes in controller RAM order. |
+| `icons` | `icons.bin`, 256 icon plane bytes with DB0 only. |
+| `pixels` | `pixels.bin`, 96 by 64 logical shade codes from 0 to 3, in row order. |
+| `er0` | Unsigned 32-bit CPU register value. |
+| `sleeping`, `display_on` | Boolean values. |
+| `display_start` | LCD start line from 0 to 127. |
+| `interrupt_entries`, `nv_commits`, `ir_events` | Counts of accepted interrupts, completed nonvolatile operations, and optical output transitions. |
 
-Cases may also request `lcd.bin` (4,096 controller RAM bytes), `icons.bin`
-(256 icon plane bytes, DB0 only), or `pixels.bin` (96×64 row-major logical
-shade codes 0–3). These observations use physical controller layout and panel
-bonding; pixel assertions do not prescribe analog luminance or a renderer.
+Only requested observations are required. An adapter can declare the subset it can
+observe. Physical runners need a way to retrieve those results after measurement and
+must enforce any destructive experiment restrictions recorded with the case.
 
-Physical inputs use `time_us,kind,...` CSV rows: `ir,0|1`, `nmi,0|1`,
-`digital,p10|p11|p12|p30|p31|p32|p90|p91|p92|p93|adtrg,0|1`, and
-`analog,pb0..pb5|vcref,millivolts|release`.
-Adapters must preserve the stated timing and hardware meaning. They must never
-patch instructions, replace firmware routines, or inject expected results.
-
-The suite verifies input identity before execution and compares every requested
-observation. Invalid paths, empty assertions, misspelled fields, and invalid
-memory windows are rejected. Outcomes distinguish pass, fail, unknown
-expectation, not applicable, and runner failure. Exit 0 means every case passed;
-1 means a failure; 2 means incomplete applicability or expectations. The existing
-manifest schema number is tooling metadata, unrelated to emulator save states.
-
-The diagnostics were extracted from the approved HachiStep starter. Retail
-firmware, private saves, and emulator-generated regression baselines remain
-outside this suite.
+Input CSV rows use integer microsecond timestamps, with no header. `ir`, `nmi`,
+`reset` and `power` take a 0 or 1; `supply` takes millivolts; `temperature` takes
+millidegrees Celsius; `accel` takes three signed micro-g values including gravity;
+`buttons` takes left, center and right pressed flags. `digital,PIN,VALUE` and
+`analog,PIN,VALUE` drive package pins. Digital values are 0, 1 or `release`; analog
+values are millivolts or `release`. Pin names and required inputs appear in each case.
+An adapter advertises pin inputs individually, for example `analog:pb4`.
