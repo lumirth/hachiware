@@ -102,6 +102,14 @@ def cases():
     p=Program();p.byte(0xf06f,0x18);p.byte(0xffc0,2)
     p.code += bytes.fromhex('6a08ffd4e80146f86a88f8006a08ffd4e80147f86a88f8016a08f06c6a88f802')
     yield 'rtc-clock-output-with-run-clear',p.finish(),{'ram':{'f800':'000100'}},None
+    for supply,code in [(3300,838),(3000,819),(2700,796),(2400,768)]:
+        p=Program();p.byte(0xfffa,0x13);p.byte(0xffbe,7);p.code += bytes(20)
+        for slot,(direction,latch,pull) in enumerate([(16,16,0),(16,0,0),(0,16,16)]):
+            for a,v in [(0xffeb,direction),(0xffdb,latch),(0xf086,pull)]:p.byte(a,v)
+            p.byte(0xffbf,0x80);p.code += bytes.fromhex('6a08ffbfe88046f8')
+            p.code += bytes.fromhex('6b00ffbc6b80')+(0xf800+2*slot).to_bytes(2,'big')
+        yield f'adc-battery-supply-{supply}',p.finish(),{'ram':{'f800':f'{code<<6:04x}00000000'}},f'0,supply,{supply}\n'
+
     p=Program();p.byte(0xfffa,0x13);p.code += bytes(20)
     for i,mode in enumerate([0x04,0x14,0x24,0x34,0x00]):
         p.byte(0xffbe,mode);p.byte(0xffbf,0x80)
@@ -643,6 +651,10 @@ def expectation_metadata(name: str) -> dict:
         return {'kind':'software_reasoned','source':'REJ09B0152-0300 §§9.2–9.4 TLB/TCB path and shared clock selection',
                 'question':'Do live TLB/mode writes continue counting and preserve the reload/overflow relationship?',
                 'limitation':'Writing TLB while counting is outside recommended programming; both connected latches accept the write in this selected circuit model.'}
+    if name.startswith('adc-battery-'):
+        return {'kind':'software_reasoned','source':'REJ09B0152-0300 Fig17.1/17.6; lumirth/pw BatterySample and BatteryCheckLow',
+                'question':'Does P84 drive qualify battery sensing, with a supply-following AVCC and midpoint ADC quantization?',
+                'limitation':'Selected nominal sense path has an effective 600 mV drop, not a measured board netlist. Pull-up alone does not enable it.'}
     if name.startswith('adc-'):
         return {'kind':'documented','source':'REJ09B0152-0300 §§17.3–17.4,17.7.3; Fig17.1 sample-and-hold circuit',
                 'question':'Do all clock selectors complete, do PMRB/AMR/IEGR qualify physical triggers and vector38, and does an open mux retain its sampled charge?',
