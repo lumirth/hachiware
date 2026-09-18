@@ -43,6 +43,28 @@ def handler(image: bytes, vector: int, code: str) -> bytes:
 
 
 def cases():
+    p=Program();p.byte(0xfffa,0x13);p.code += bytes(20)
+    for i,mode in enumerate([0x04,0x14,0x24,0x34,0x00]):
+        p.byte(0xffbe,mode);p.byte(0xffbf,0x80)
+        p.code += bytes.fromhex('6a08ffbfe88046f8')
+        p.code += bytes.fromhex('6b00ffbc6b80')+(0xf800+2*i).to_bytes(2,'big')
+    yield 'adc-clock-selections-and-open-mux',p.finish(),{'ram':{'f800':'ffc0'*5}},'0,analog,pb0,3300\n'
+
+    for rising in [False,True]:
+        p=Program()
+        for a,v in [(0xfffa,0x13),(0xffca,8),(0xfff2,0x20 if rising else 0),
+                    (0xffbe,0x64),(0xfff4,0x40)]:p.byte(a,v)
+        p.code += bytes.fromhex('067f018040fc')
+        image=handler(p.finish(),38,'6b00ffbc6b80f8006a08fff76a88f802f8006a88fff740fe')
+        timeline=f'0,analog,pb0,3300\n0,digital,adtrg,{int(not rising)}\n100,digital,adtrg,{int(rising)}\n'
+        yield 'adc-trigger-'+('rising' if rising else 'falling'),image,{'ram':{'f800':'ffc040'},'interrupt_entries':1},timeline
+
+    p=Program()
+    p.byte(0xfffa,0x13);p.byte(0xffbe,0x64) # TEST pin not selected as ADTRG.
+    p.code += bytes(6000)
+    p.code += bytes.fromhex('6a08ffbf6a88f8006b00ffbc6b80f802')
+    yield 'adc-trigger-pin-gate',p.finish(),{'ram':{'f800':'3f','f802':'0000'}},'0,digital,adtrg,1\n100,digital,adtrg,0\n'
+
     p=Program()
     for a,v in [(0xfffb,0x44),(0xfff5,0x82),(0xf0f1,0x40),(0xf0f0,0x80)]:p.byte(a,v)
     p.code += bytes(1000)
@@ -550,6 +572,10 @@ def cases():
 
 
 def expectation_metadata(name: str) -> dict:
+    if name.startswith('adc-'):
+        return {'kind':'documented','source':'REJ09B0152-0300 §§17.3–17.4,17.7.3; Fig17.1 sample-and-hold circuit',
+                'question':'Do all clock selectors complete, do PMRB/AMR/IEGR qualify physical triggers and vector38, and does an open mux retain its sampled charge?',
+                'limitation':'Open-mux charge retention is a circuit inference; Full-scale input assumes AVCC at or below 3.3 V; no battery-network transfer is asserted.'}
     if name.startswith('oscillator-'):
         return {'kind':'documented','source':'REJ09B0152-0300 §§4.1.1,4.3.4,5.5; Table10.3',
                 'question':'Does SUBSTP stop the crystal, can ROSC/32 clock Timer W with that crystal stopped, and is OSCF read-only?'}

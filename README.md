@@ -68,7 +68,7 @@ shade codes 0–3). These observations use physical controller layout and panel
 bonding; pixel assertions do not prescribe analog luminance or a renderer.
 
 Physical inputs use `time_us,kind,...` CSV rows: `ir,0|1`, `nmi,0|1`,
-`digital,p10|p11|p12|p30|p31|p32|p90|p91|p92|p93,0|1`, and
+`digital,p10|p11|p12|p30|p31|p32|p90|p91|p92|p93|adtrg,0|1`, and
 `analog,pb0..pb5|vcref,millivolts|release`.
 Adapters must preserve the stated timing and hardware meaning. They must never
 patch instructions, replace firmware routines, or inject expected results.
