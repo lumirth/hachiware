@@ -16,6 +16,7 @@ MODULES = (
     "interrupts",
     "lcd",
     "power",
+    "rtc",
     "sensor",
     "sensor_i2c",
     "serial",

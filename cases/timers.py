@@ -1,17 +1,8 @@
-"""AEC, RTC and timer counting, capture and interrupt behavior."""
+"""AEC and timer counting, capture and interrupt behavior."""
 
 from diagnostic import Case
+
 from .h8 import Program, handler
-
-
-RTC_EVIDENCE = {
-    "kind": "documented",
-    "source": "REJ09B0152-0300 §§8.1.4,11.3–11.5; REJ06B0514 RCS=1xxx table",
-    "question": "Do calendar updates preserve raw digit fields and a pending busy update, and does "
-    "TMOW drive P10 independently of RUN?",
-    "limitation": "Busy writes use the pending update latches; malformed digits follow the inferred "
-    "counter carry rules.",
-}
 
 
 def cases():
@@ -73,54 +64,6 @@ def cases():
         "timer-b1-live-load-and-mode",
         p.finish(),
         {"ram": {"f800": "424204ff"}},
-        None,
-        evidence=basis,
-    )
-
-    basis = RTC_EVIDENCE
-    for busy_write in [False, True]:
-        p = Program()
-        p.byte(0xFFB1, 0x12)
-        p.byte(0xFFB1, 0xA2)
-        for a, v in [(0xF06C, 0x10), (0xF06C, 0), (0xF06F, 0x0F), (0xF06D, 0x7F)]:
-            p.byte(a, v)
-        data = [0x59, 0x59, 0x23, 6] if busy_write else [0x1F, 0x1A, 0x2F, 7]
-        for i, v in enumerate(data):
-            p.byte(0xF068 + i, v)
-        p.byte(0xF06C, 0xC8)
-        p.code += bytes.fromhex("6a08f068e88047f8")  # wait for busy entry
-        if busy_write:
-            p.byte(0xF068, 0x12)
-            p.code += bytes.fromhex("6a08f0686a88f800")
-        p.code += bytes.fromhex("6a08f068e88046f8")  # wait for pending commit
-        for i, a in enumerate([0xF068, 0xF069, 0xF06A, 0xF06B, 0xF067]):
-            p.code += bytes((0x6A, 8, a >> 8, a & 255, 0x6A, 0x88, 0xF8, i + 1))
-        expected = "92000000007f" if busy_write else "00101a2f0707"
-        name = (
-            "rtc-calendar-busy-write"
-            if busy_write
-            else "rtc-calendar-raw-digits-and-alias"
-        )
-        yield Case(
-            name,
-            p.finish(),
-            {"ram": {"f800": expected}},
-            None,
-            evidence=basis,
-            milliseconds=1100,
-        )
-
-    basis = RTC_EVIDENCE
-    p = Program()
-    p.byte(0xF06F, 0x18)
-    p.byte(0xFFC0, 2)
-    p.code += bytes.fromhex(
-        "6a08ffd4e80146f86a88f8006a08ffd4e80147f86a88f8016a08f06c6a88f802"
-    )
-    yield Case(
-        "rtc-clock-output-with-run-clear",
-        p.finish(),
-        {"ram": {"f800": "000100"}},
         None,
         evidence=basis,
     )
