@@ -76,23 +76,58 @@ def applicability(
 
 def checkout(directory: Path) -> dict:
     try:
-        commit = subprocess.check_output(
-            ["git", "-C", str(directory), "rev-parse", "HEAD"],
-            text=True,
-            stderr=subprocess.DEVNULL,
-        ).strip()
-        changes = subprocess.check_output(
-            ["git", "-C", str(directory), "status", "--porcelain"],
-            text=True,
-            stderr=subprocess.DEVNULL,
-        ).splitlines()
-        return {"commit": commit, "dirty": bool(changes), "changes": changes}
-    except (OSError, subprocess.CalledProcessError):
-        return {"commit": None, "dirty": None}
+        command = ["git", "--no-optional-locks", "-C", str(directory)]
+
+        def git(*args: str) -> bytes:
+            return subprocess.check_output([*command, *args], stderr=subprocess.DEVNULL)
+
+        root = Path(os.fsdecode(git("rev-parse", "--show-toplevel")).strip())
+        command = ["git", "--no-optional-locks", "-C", str(root)]
+        commit = git("rev-parse", "HEAD").decode().strip()
+        changes = (
+            git("status", "--porcelain", "--untracked-files=all").decode().splitlines()
+        )
+        names = git("ls-files", "--cached", "--others", "--exclude-standard", "-z")
+        tree = hashlib.sha256()
+        for name in sorted(set(names.split(b"\0")) - {b""}):
+            path = root / os.fsdecode(name)
+            if path.is_symlink():
+                kind, value = (
+                    "symlink",
+                    hashlib.sha256(os.fsencode(os.readlink(path))).hexdigest(),
+                )
+            elif path.is_file():
+                kind, value = (
+                    "executable" if path.stat().st_mode & 0o111 else "file",
+                    identity(path)["sha256"],
+                )
+            elif not path.exists():
+                kind, value = "missing", ""
+            else:
+                raise OSError(f"cannot fingerprint {path}")
+            tree.update(json.dumps([os.fsdecode(name), kind, value]).encode() + b"\n")
+        return {
+            "commit": commit,
+            "dirty": bool(changes),
+            "changes": changes,
+            "tree_sha256": tree.hexdigest(),
+        }
+    except (OSError, subprocess.CalledProcessError) as error:
+        return {"commit": None, "dirty": None, "tree_sha256": None, "error": str(error)}
 
 
 def identity(path: Path) -> dict:
     return {"path": str(path), "sha256": hashlib.sha256(path.read_bytes()).hexdigest()}
+
+
+def sources(adapter: Path, runner: Path | None) -> dict:
+    return {
+        "suite": checkout(ROOT),
+        "suite_runner": identity(Path(__file__).resolve()),
+        "adapter": {**identity(adapter), "checkout": checkout(adapter.parent)},
+        "runner": identity(runner.resolve()) if runner else None,
+        "python": sys.version,
+    }
 
 
 def write_json(path: Path, value) -> None:
@@ -266,13 +301,7 @@ def main() -> None:
     command = (
         [sys.executable, str(adapter)] if adapter.suffix == ".py" else [str(adapter)]
     )
-    source = {
-        "suite": checkout(ROOT),
-        "suite_runner": identity(Path(__file__).resolve()),
-        "adapter": {**identity(adapter), "checkout": checkout(adapter.parent)},
-        "runner": identity(args.runner.resolve()) if args.runner else None,
-        "python": sys.version,
-    }
+    source = sources(adapter, args.runner)
     if args.runner:
         command += ["--runner", str(args.runner.resolve())]
     out = args.out.resolve()
@@ -327,6 +356,25 @@ def main() -> None:
     ) as error:
         summary["runner_error"] = str(error)
     finally:
+        summary["source_unchanged"] = None
+        try:
+            after = sources(adapter, args.runner)
+            summary["source_after"] = after
+            if source != after:
+                summary["source_unchanged"] = False
+                summary["runner_error"] = (
+                    summary.get("runner_error")
+                    or "source or runner changed during execution"
+                )
+            elif (
+                source["suite"]["tree_sha256"]
+                and source["adapter"]["checkout"]["tree_sha256"]
+            ):
+                summary["source_unchanged"] = True
+        except OSError as error:
+            summary["runner_error"] = (
+                summary.get("runner_error") or f"cannot recheck run sources: {error}"
+            )
         summary["counts"] = {
             status: sum(r["status"] == status for r in summary["results"])
             for status in ["pass", "fail", "unknown", "not_applicable", "runner_error"]

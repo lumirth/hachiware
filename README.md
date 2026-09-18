@@ -32,6 +32,13 @@ execution. Failures retain observations, stdout, stderr and the exact command un
 These durations include process startup and export; use an emulator's benchmark tools
 for performance measurements.
 
+The runner records source and executable identities before and after execution. Checkout
+fingerprints cover tracked and nonignored untracked contents, names, executable bits and
+symlink targets. Keep generated outputs in ignored directories. A detected change fails
+the run with `runner_error`; unavailable checkout fingerprints leave `source_unchanged`
+null. Fingerprints do not archive the source or detect edits reverted between observations.
+An executable hash does not establish which source built it.
+
 Results distinguish `pass`, `fail`, `unknown`, `not_applicable` and `runner_error`.
 Exit status 0 means every selected case passed, 1 means an assertion or runner failed,
 and 2 means expectations or applicability were incomplete. Missing observations,

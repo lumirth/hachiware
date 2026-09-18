@@ -27,4 +27,6 @@ else:
     time.sleep(config.get("sleep", 0))
     if config.get("report") is not None:
         (args.out / "observations.json").write_text(json.dumps(config["report"]))
+    if config.get("change_runner"):
+        args.runner.write_text("changed during execution")
     raise SystemExit(config.get("returncode", 0))

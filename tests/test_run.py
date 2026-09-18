@@ -129,6 +129,18 @@ class Runner(unittest.TestCase):
         command = json.loads((artifacts / "command.json").read_text())
         self.assertEqual(command[command.index("--observe") + 1], "er0")
 
+    def test_runner_changed_during_execution_invalidates_passing_observations(self):
+        self.config["change_runner"] = True
+        process, report, _ = self.run_suite()
+        self.assertEqual(process.returncode, 1, process.stderr)
+        self.assertEqual(report["counts"]["pass"], 1)
+        self.assertFalse(report["source_unchanged"])
+        self.assertIn("changed during execution", report["runner_error"])
+        self.assertNotEqual(
+            report["source"]["runner"]["sha256"],
+            report["source_after"]["runner"]["sha256"],
+        )
+
     def test_conditions_and_capabilities_determine_applicability_before_execution(self):
         case = self.corpus["cases"][0]
         case["conditions"] = {"supply_mv": 3000}

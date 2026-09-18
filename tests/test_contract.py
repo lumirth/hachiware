@@ -13,6 +13,48 @@ import run as suite
 
 
 class Conformance(unittest.TestCase):
+    def test_checkout_fingerprints_dirty_contents_and_ignores_run_outputs(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+
+            def git(*args):
+                subprocess.run(
+                    ["git", "-C", str(root), *args], check=True, capture_output=True
+                )
+
+            git("init", "-q")
+            (root / ".gitignore").write_text("out/\n")
+            (root / "source").write_text("original")
+            git("add", ".")
+            git(
+                "-c",
+                "user.name=Test",
+                "-c",
+                "user.email=test@example.invalid",
+                "-c",
+                "commit.gpgsign=false",
+                "-c",
+                "core.hooksPath=/dev/null",
+                "commit",
+                "-qm",
+                "fixture",
+            )
+            (root / "source").write_text("first")
+            before = suite.checkout(root)
+            (root / "source").write_text("other")
+            after = suite.checkout(root)
+            self.assertEqual(before["commit"], after["commit"])
+            self.assertEqual(before["changes"], after["changes"])
+            self.assertNotEqual(before["tree_sha256"], after["tree_sha256"])
+            (root / "new\nfile").write_bytes(b"\x00\xff")
+            untracked = suite.checkout(root)
+            self.assertNotEqual(after["tree_sha256"], untracked["tree_sha256"])
+            (root / "out").mkdir()
+            (root / "out/result").write_text("ignored")
+            self.assertEqual(
+                untracked["tree_sha256"], suite.checkout(root / "out")["tree_sha256"]
+            )
+
     def test_rejects_misspelled_and_out_of_range_expectations(self):
         for expected in [
             {"interrupt_entry": 1},

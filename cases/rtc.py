@@ -7,10 +7,8 @@ from .h8 import Program
 RTC_EVIDENCE = {
     "kind": "documented",
     "source": "REJ09B0152-0300 §§8.1.4,11.3–11.5; REJ06B0514 RCS=1xxx table",
-    "question": "Do calendar updates preserve raw digit fields and a pending busy update, and does "
+    "question": "Do calendar updates preserve a pending busy update, and does "
     "TMOW drive P10 independently of RUN?",
-    "limitation": "Busy writes use the pending update latches; malformed digits follow the inferred "
-    "counter carry rules.",
 }
 
 
@@ -44,7 +42,14 @@ def cases():
             p.finish(),
             {"ram": {"f800": expected}},
             None,
-            evidence=basis,
+            evidence=basis
+            if busy_write
+            else {
+                "kind": "software_reasoned",
+                "source": RTC_EVIDENCE["source"],
+                "question": "How do malformed calendar digits carry, and what does the RTCDR alias expose?",
+                "limitation": "Malformed digits follow inferred counter carry rules; this expectation has no hardware capture.",
+            },
             milliseconds=1100,
         )
 
