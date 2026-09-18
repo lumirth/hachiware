@@ -43,6 +43,34 @@ def handler(image: bytes, vector: int, code: str) -> bytes:
 
 
 def cases():
+    for nop, high in [(False,False),(True,False),(False,True)]:
+        p=Program();p.code += bytes.fromhex('f901f8fe6a89ffca')
+        if nop:p.code += bytes.fromhex('0000')
+        p.code += bytes.fromhex('38f66a08fff66a88f800')
+        name='irq-mux-'+('high' if high else 'settled' if nop else 'immediate-clear')
+        yield name,p.finish(),{'ram':{'f800':'00' if nop or high else '01'}},f'0,analog,pb0,{3000 if high else 0}\n'
+
+    for clear_source in [False,True]:
+        p=Program();p.code=bytearray(bytes.fromhex('7907ff70'))
+        for a,v in [(0xfffb,0x44),(0xf0f1,0),(0xf0f2,1)]:p.byte(a,v)
+        p.word(0xf0f8,0 if clear_source else 6)
+        p.code += bytes.fromhex('7900')+(0xf0f3 if clear_source else 0xf0f2).to_bytes(2,'big')
+        # phi clock; leaving GRA=6 occurs seven states after starting, between
+        # BCLR's operand read/NEXT and write. GRA=0 sets before its operand read.
+        p.code += bytes.fromhex('f980067f00006a89f0f0')
+        return_pc=0x100+len(p.code)+4
+        p.code += bytes.fromhex('7d007200')
+        p.byte(0xf802,0xa5)
+        p.code += bytes.fromhex('6a08f0f26a88f803')
+        image=handler(p.finish(),35,'6a08f0f36a88f8006a08f0f26a88f801f8006a88f0f35670')
+        expected={'ram':{'f800':'0000a571' if clear_source else '7170a570'},'interrupt_entries':0 if clear_source else 1}
+        if not clear_source:expected['ram']['ff6e']=f'{return_pc:04x}'
+        yield 'irq-'+('source-clear-cancels' if clear_source else 'enable-clear-admission'),image,expected,None
+
+    p=Program();p.code=bytearray(bytes.fromhex('7907ff700735570040fe'))
+    image=handler(p.finish(),8,'40fe')
+    yield 'exception-ccr-stack-word',image,{'ram':{'ff6c':'35350108'}},None
+
     p=Program()
     for i,a in enumerate(range(0xf078,0xf080)):
         p.code += bytes((0x6a,8,a>>8,a&255,0x6a,0x88,0xf8,i))
@@ -681,6 +709,10 @@ def cases():
 
 
 def expectation_metadata(name: str) -> dict:
+    if name.startswith('irq-') or name == 'exception-ccr-stack-word':
+        return {'kind':'documented','source':'REJ09B0152-0300 §§3.7–3.8.4,10.4; H8/300H software manual §1.1; H8/3318 §2.3.2',
+                'question':'Do exception stack contents, enable-clear admission, source-clear cancellation and pin-selection flag settling follow the target contract?',
+                'limitation':'Timer match is seven phi states after start, strictly between BCLR operand read and write; CCR duplication follows the explicitly inherited H8/300 stack format.'}
     if name.startswith('iic-'):
         return {'kind':'documented','source':'REJ09B0152-0300 §16.3–16.5; TN-MC*-A022A/E and A023A/E',
                 'question':'Do byte-wide registers, shared-vector interrupt, physical address frames, read-qualified flags and STOP sequencing follow the IIC2 contract?',
