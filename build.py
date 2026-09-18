@@ -315,6 +315,20 @@ def cases():
             p.byte(0xffdc,0);p.send(0x8b);p.send(0);p.code += bytes.fromhex('6a88f801');p.byte(0xffdc,1)
             image=p.finish();expected='ff03'
         yield name,image,{'ram':{'f800':expected}},timeline
+    p=Program()
+    for a,v in [(0xfffb,0x14),(0xf0e0,0x8c),(0xf0e1,0x40),(0xf0e2,0x86),
+                (0xf0e3,0xc0),(0xffe4,7),(0xffd4,5),(0xf087,8),(0xffec,1),(0xffdc,1)]:
+        p.byte(a,v)
+    p.code += bytes(12000) # First complete cold vector, still +1 g.
+    p.byte(0xffdc,0);p.send(0x86);p.send(0)
+    p.code += bytes.fromhex('6a88f800');p.byte(0xffdc,1)
+    p.byte(0xffdc,0);p.send(0x0a);p.send(0x20);p.byte(0xffdc,1)
+    p.code += bytes(6000) # Image reload and several conversions at -1 g.
+    for slot,address in [(1,7),(2,6),(3,7)]:
+        p.byte(0xffdc,0);p.send(0x80|address);p.send(0)
+        p.code += bytes((0x6a,0x88,0xf8,slot));p.byte(0xffdc,1)
+    yield 'sensor-image-keeps-read-pair',p.finish(),{'ram':{'f800':'012001e0'}},'4000,accel,0,0,-1000000\n'
+
     for name,reg14,offset,expected,timeline in [
         ('sensor-factory-defaults',None,None,{'f800':'031496a0960000a20d0e80'},None),
         ('sensor-offset-2g',6,0x40,{'f800':'014264'},None),
