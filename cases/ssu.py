@@ -1,10 +1,74 @@
 """SSU shifting, holding registers and package pin selection."""
 
 from diagnostic import Case
+
 from .h8 import Program
 
 
+def shared_data_cases():
+    basis = {
+        "kind": "software_reasoned",
+        "source": "Bosch BMA150 Rev1.6 §4.1/table9; ST M95512 DS4192 Rev23 tables16–18; "
+        "Pokéwalker P93 shared EEPROM Q and sensor SDO wiring",
+        "question": "Do overlapping EEPROM and sensor reads resolve the shared data pin and "
+        "continue independently after deselection?",
+        "limitation": "Opposing outputs resolve low in the nominal digital circuit, inferred from "
+        "stronger specified sink than source loads. These limits do not measure contention voltage.",
+        "physical_device": "The guest intentionally opposes output drivers and writes EEPROM "
+        "address 0x80. Use a protected characterization setup and disposable save data.",
+    }
+    for data in (0xFF, 0xFD):
+        p = Program()
+        for address, value in [
+            (0xFFFB, 0x14),
+            (0xF0E0, 0x8C),
+            (0xF0E1, 0x40),
+            (0xF0E2, 0x86),
+            (0xF0E3, 0xC0),
+            (0xFFE4, 7),
+            (0xFFD4, 5),
+            (0xF087, 8),
+            (0xFFEC, 1),
+            (0xFFDC, 1),
+        ]:
+            p.byte(address, value)
+        if data != 0xFF:
+            p.byte(0xFFD4, 1)
+            p.send(6)
+            p.byte(0xFFD4, 5)
+            p.byte(0xFFD4, 1)
+            for value in (2, 0, 0x80, data):
+                p.send(value)
+            p.byte(0xFFD4, 5)
+            p.code += bytes(24000)  # More than the specified 5-ms write interval.
+
+        p.byte(0xFFD4, 1)
+        p.send(3)
+        p.send(0)
+        p.byte(0xFFDC, 0)
+        p.send(0x80)  # EEPROM address low byte and BMA chip-ID read command.
+        p.send(0)
+        p.code += bytes.fromhex("6a88f800")
+        p.byte(0xFFDC, 1)
+        p.send(0)  # Only EEPROM drives its next cell, which is still FF.
+        p.code += bytes.fromhex("6a88f801")
+        p.byte(0xFFD4, 5)
+        p.byte(0xFFDC, 0)
+        p.send(0x80)
+        p.send(0)  # Only BMA drives its chip ID, 02.
+        p.code += bytes.fromhex("6a88f802")
+        p.byte(0xFFDC, 1)
+        yield Case(
+            f"ssu-overlapping-device-reads-{data:02x}",
+            p.finish(),
+            {"ram": {"f800": f"{data & 2:02x}ff02"}},
+            evidence=basis,
+            milliseconds=12,
+        )
+
+
 def cases():
+    yield from shared_data_cases()
     basis = {
         "kind": "documented",
         "source": "REJ09B0152-0300 §§15.3–15.5; §8.4 and Appendix B.3 for the package mux",
