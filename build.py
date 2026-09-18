@@ -43,6 +43,34 @@ def handler(image: bytes, vector: int, code: str) -> bytes:
 
 
 def cases():
+    p=Program();p.byte(0xfffa,7);p.byte(0xf0d0,0x78);p.byte(0xf0d1,0x42)
+    p.code += bytes.fromhex('6a08f0d16a88f800')
+    p.byte(0xf0d0,0xf8);p.byte(0xf0d0,0xfe)
+    p.code += bytes.fromhex('6a08f0d16a88f801')
+    p.byte(0xf0d1,0xff);p.byte(0xf0d0,0xf8)
+    p.code += bytes.fromhex('6a08fff7e80447f86a88f8026a08f0d16a88f803')
+    yield 'timer-b1-live-load-and-mode',p.finish(),{'ram':{'f800':'424204ff'}},None
+
+    for busy_write in [False,True]:
+        p=Program();p.byte(0xffb1,0x12);p.byte(0xffb1,0xa2)
+        for a,v in [(0xf06c,0x10),(0xf06c,0),(0xf06f,0x0f),(0xf06d,0x7f)]:p.byte(a,v)
+        data=[0x59,0x59,0x23,6] if busy_write else [0x1f,0x1a,0x2f,7]
+        for i,v in enumerate(data):p.byte(0xf068+i,v)
+        p.byte(0xf06c,0xc8)
+        p.code += bytes.fromhex('6a08f068e88047f8') # wait for busy entry
+        if busy_write:
+            p.byte(0xf068,0x12)
+            p.code += bytes.fromhex('6a08f0686a88f800')
+        p.code += bytes.fromhex('6a08f068e88046f8') # wait for pending commit
+        for i,a in enumerate([0xf068,0xf069,0xf06a,0xf06b,0xf067]):
+            p.code += bytes((0x6a,8,a>>8,a&255,0x6a,0x88,0xf8,i+1))
+        expected='92000000007f' if busy_write else '00101a2f0707'
+        name='rtc-calendar-busy-write' if busy_write else 'rtc-calendar-raw-digits-and-alias'
+        yield name,p.finish(),{'ram':{'f800':expected}},None
+
+    p=Program();p.byte(0xf06f,0x18);p.byte(0xffc0,2)
+    p.code += bytes.fromhex('6a08ffd4e80146f86a88f8006a08ffd4e80147f86a88f8016a08f06c6a88f802')
+    yield 'rtc-clock-output-with-run-clear',p.finish(),{'ram':{'f800':'000100'}},None
     p=Program();p.byte(0xfffa,0x13);p.code += bytes(20)
     for i,mode in enumerate([0x04,0x14,0x24,0x34,0x00]):
         p.byte(0xffbe,mode);p.byte(0xffbf,0x80)
@@ -572,6 +600,14 @@ def cases():
 
 
 def expectation_metadata(name: str) -> dict:
+    if name.startswith('rtc-'):
+        return {'kind':'documented','source':'REJ09B0152-0300 §§8.1.4,11.3–11.5; REJ06B0514 RCS=1xxx table',
+                'question':'Do calendar updates preserve raw digit fields and a pending busy update, and does TMOW drive P10 independently of RUN?',
+                'limitation':'Busy-write precedence and malformed digit carry are local counter/latch inferences; no exact initial busy phase is asserted.'}
+    if name.startswith('timer-b1-'):
+        return {'kind':'software_reasoned','source':'REJ09B0152-0300 §§9.2–9.4 TLB/TCB path and shared clock selection',
+                'question':'Do live TLB/mode writes continue counting and preserve the reload/overflow relationship?',
+                'limitation':'Writing TLB while counting is outside recommended programming; both connected latches accept the write in this selected circuit model.'}
     if name.startswith('adc-'):
         return {'kind':'documented','source':'REJ09B0152-0300 §§17.3–17.4,17.7.3; Fig17.1 sample-and-hold circuit',
                 'question':'Do all clock selectors complete, do PMRB/AMR/IEGR qualify physical triggers and vector38, and does an open mux retain its sampled charge?',
@@ -643,7 +679,7 @@ def main() -> None:
         (args.output/f'{name}.bin').write_bytes(image)
         if timeline: (args.output/f'{name}.csv').write_text(timeline)
         manifest['cases'].append({'name':name,'firmware':f'{name}.bin','sha256':hashlib.sha256(image).hexdigest(),
-                                  'milliseconds':23 if name.startswith('sensor-autowake') else 8,'expected':expected,'input':f'{name}.csv' if timeline else None,
+                                  'milliseconds':1100 if name.startswith('rtc-calendar') else 23 if name.startswith('sensor-autowake') else 8,'expected':expected,'input':f'{name}.csv' if timeline else None,
                                   'input_sha256':hashlib.sha256(timeline.encode()).hexdigest() if timeline else None,
                                   'expectation':expectation_metadata(name)})
     (args.output/'manifest.json').write_text(json.dumps(manifest,indent=2)+'\n')
