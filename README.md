@@ -49,6 +49,12 @@ The
 widths and state counts from REJ09B0152-0300 §20.1. It is reference data for
 diagnostics, not generated from a bus decoder.
 
+Decimal-adjust guests sweep all 364 DAA and 380 DAS operand/H/C combinations
+in the manufacturer tables with incoming N/Z clear and set. They mask undefined
+H/V instead of locking in a particular ALU implementation. A separate arithmetic
+case covers ADD/ADDX/SUB/SUBX/NEG and twenty valid carry states omitted by the
+DAA table's printed ranges, with their basis labeled as decimal arithmetic.
+
 Each manifest case identifies its target, input hashes, observation period,
 question, expected results, and their basis. Existing cases are documented or
 reasoned expectations; no physical captures are claimed. New observations should
