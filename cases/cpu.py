@@ -1,6 +1,7 @@
 """H8 register lanes, arithmetic and instruction access ordering."""
 
 from diagnostic import Case
+
 from .h8 import Program
 
 
@@ -174,3 +175,71 @@ def cases():
         None,
         evidence=basis,
     )
+
+    yield from branch_cases()
+
+
+def branch_cases():
+    # Bit n is the manual's branch decision when NZVC is the four-bit value n.
+    taken = (
+        0xFFFF,
+        0x0000,
+        0x0505,
+        0xFAFA,  # BRA, BRN, BHI, BLS
+        0x5555,
+        0xAAAA,
+        0x0F0F,
+        0xF0F0,  # BCC, BCS, BNE, BEQ
+        0x3333,
+        0xCCCC,
+        0x00FF,
+        0xFF00,  # BVC, BVS, BPL, BMI
+        0xCC33,
+        0x33CC,
+        0x0C03,
+        0xF3FC,  # BGE, BLT, BGT, BLE
+    )
+    evidence = {
+        "kind": "documented",
+        "source": "REJ09B0213-0300 §2.2.7 pp.52–53, Bcc conditions, encodings and unchanged CCR: "
+        "https://www.renesas.com/en/document/mas/h8300h-series-software-manual",
+        "question": "Do all 16 conditions select the correct path for every NZVC combination, "
+        "with signed displacement relative to the following instruction and unchanged CCR?",
+    }
+    for width in (8, 16):
+        for backward in (False, True):
+            p = Program()
+            p.code += bytes.fromhex("f811f922")  # R0L/R1L identify the chosen path.
+            expected = bytearray()
+            for condition, mask in enumerate(taken):
+                for flags in range(16):
+                    address = 0xF800 + len(expected)
+                    ccr = 0xF0 | flags
+                    store_false = bytes.fromhex("020a6a88") + address.to_bytes(2, "big")
+                    store_true = bytes.fromhex("020a6a89") + address.to_bytes(2, "big")
+                    size = 2 if width == 8 else 4
+                    displacement = -(10 + size) if backward else 8
+                    branch = (
+                        bytes((0x40 | condition, displacement & 255))
+                        if width == 8
+                        else bytes((0x58, condition << 4))
+                        + displacement.to_bytes(2, "big", signed=True)
+                    )
+                    if backward:
+                        p.code += (
+                            bytes((0x40, 8)) + store_true + bytes((0x40, 8 + size))
+                        )
+                        p.code += bytes((0x07, ccr)) + branch + store_false
+                    else:
+                        p.code += bytes((0x07, ccr)) + branch + store_false
+                        p.code += bytes((0x40, 6)) + store_true
+                    # Both paths capture CCR before their result store changes it.
+                    p.code += bytes.fromhex("6a8a") + (address + 1).to_bytes(2, "big")
+                    expected.extend((0x22 if mask & (1 << flags) else 0x11, ccr))
+            p.byte(0xFA00, 0xA5)
+            yield Case(
+                f"branch-{width}-{'backward' if backward else 'forward'}",
+                p.finish(),
+                {"ram": {"f800": expected.hex(), "fa00": "a5"}},
+                evidence=evidence,
+            )
