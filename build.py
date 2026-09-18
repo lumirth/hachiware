@@ -43,6 +43,48 @@ def handler(image: bytes, vector: int, code: str) -> bytes:
 
 
 def cases():
+    p=Program()
+    for i,a in enumerate(range(0xf078,0xf080)):
+        p.code += bytes((0x6a,8,a>>8,a&255,0x6a,0x88,0xf8,i))
+    yield 'iic-reset-map',p.finish(),{'ram':{'f800':'007d38000000ffff'}},None
+
+    p=Program();p.byte(0xf07a,0x88);p.byte(0xf07e,1)
+    p.code += bytes.fromhex('6a08f07e6a88f800')
+    p.byte(0xf078,0x90);p.byte(0xf07c,0)
+    p.code += bytes.fromhex('6a08f07c6a88f801')
+    p.byte(0xf07c,0)
+    p.code += bytes.fromhex('6a08f07c6a88f802')
+    yield 'iic-holding-order-and-flag-clear',p.finish(),{'ram':{'f800':'808000'}},None
+
+    p=Program()
+    for a,v in [(0xfffb,0x24),(0xf087,3),(0xf078,0xb0),(0xf079,0xbd),(0xf07e,0xa0)]:p.byte(a,v)
+    p.code += bytes.fromhex('6a08f07ce84047f86a08f07c6a88f8006a08f07b6a88f801')
+    p.byte(0xf079,0x3d)
+    p.code += bytes.fromhex('6a08f07ce80847f86a08f07c6a88f8046a08f0786a88f8026a08f0796a88f803')
+    yield 'iic-master-nack-and-stop',p.finish(),{'ram':{'f800':'c002b07dc8'}},None
+
+    def iic_address_input(address):
+        edges=[(0,'p90',1),(0,'p91',1),(100,'p91',0)]
+        time=120
+        for bit in range(7,-1,-1):
+            edges += [(time,'p90',0),(time,'p91',int(bool(address&(1<<bit)))),(time+20,'p90',1)]
+            time += 40
+        edges += [(time,'p90',0),(time,'p91',1),(time+20,'p90',1),(time+40,'p90',0),
+                  (time+60,'p91',0),(time+80,'p90',1),(time+100,'p91',1)]
+        return ''.join(f'{t},digital,{pin},{v}\n' for t,pin,v in edges)
+    for address,expected in [(0x54,'5402807d0a'),(0,'0003807d0b')]:
+        p=Program()
+        for a,v in [(0xfffb,0x24),(0xf087,3),(0xf07d,0x54),(0xf078,0x80)]:p.byte(a,v)
+        p.code += bytes.fromhex('6a08f07ce82047f86a08f07f6a88f8006a08f07c6a88f801')
+        p.code += bytes.fromhex('6a08f07ce80847f86a08f07c6a88f8046a08f0786a88f8026a08f0796a88f803')
+        yield 'iic-slave-'+('address' if address else 'general-call'),p.finish(),{'ram':{'f800':expected}},iic_address_input(address)
+
+    p=Program()
+    for a,v in [(0xfffb,0x24),(0xf087,3),(0xf07d,0x54),(0xf07b,0x20),(0xf078,0x80)]:p.byte(a,v)
+    p.code += bytes.fromhex('067f018040fc')
+    image=handler(p.finish(),34,'6a08f07f6a88f8006a08f07c6a88f8015670')
+    yield 'iic-slave-receive-interrupt',image,{'ram':{'f800':'5402'},'interrupt_entries':1},iic_address_input(0x54)
+
     p=Program();p.word(0xf0f8,0x1234)
     p.code += bytes.fromhex('6a08f0f86a88f8006a08f0f96a88f801')
     p.byte(0xf0f8,0xab);p.byte(0xf0f9,0xcd)
@@ -639,6 +681,10 @@ def cases():
 
 
 def expectation_metadata(name: str) -> dict:
+    if name.startswith('iic-'):
+        return {'kind':'documented','source':'REJ09B0152-0300 §16.3–16.5; TN-MC*-A022A/E and A023A/E',
+                'question':'Do byte-wide registers, shared-vector interrupt, physical address frames, read-qualified flags and STOP sequencing follow the IIC2 contract?',
+                'limitation':'Clocked input gives ample filter/setup margin; no inferred subcycle race is asserted.'}
     if name.startswith('register-'):
         return {'kind':'software_reasoned','source':'REJ09B0152-0300 §§2.3.2,2.5–2.6,8.5.1,8.5.3; TN-H8*-A414A/E memory map',
                 'question':'Do ordinary lane/alignment/wrap accesses complete without invented faults, and do comparator-enabled PB pins retain digital read access?',
