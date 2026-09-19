@@ -4,7 +4,6 @@ from importlib import import_module
 
 MODULES = (
     "adc",
-    "boot",
     "bus",
     "clocks",
     "comparators",
