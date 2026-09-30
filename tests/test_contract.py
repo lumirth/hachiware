@@ -135,3 +135,20 @@ class Conformance(unittest.TestCase):
             path.write_text(json.dumps(data))
             with self.assertRaisesRegex(ValueError, "captured observation"):
                 manifest.load_manifest(root)
+
+    def test_storage_failures_locate_the_first_changed_byte_and_keep_output_bounded(self):
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d)
+            data = bytearray(2048)
+            data[0x85] = 0xA5
+            data[0xC0] = 0xFF
+            (root / "ram.bin").write_bytes(data)
+            failures = suite.compare(
+                {"ram": {"f800": bytes(1024).hex()}},
+                {"fault": None, "completed": True}, root,
+            )
+            self.assertEqual(len(failures), 1)
+            self.assertIn("ram[f805]: expected 00, got a5", failures[0])
+            self.assertIn("offset 5, 2 of 1024 bytes differ", failures[0])
+            self.assertLess(len(failures[0]), 160)
+            self.assertEqual((root / "ram.bin").read_bytes(), data)

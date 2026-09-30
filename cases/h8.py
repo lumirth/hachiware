@@ -17,6 +17,16 @@ class Program:
         self.byte(0xF0EB, value)
         self.code += bytes.fromhex("6a08f0e4e80847f86a08f0e9")
 
+    def record_er0_ccr(self, address: int) -> None:
+        """Store ER0 then two copies of its CCR, using R2L as scratch.
+
+        STC captures CCR before MOV changes it. Six-byte records keep subsequent
+        MOV.L destinations even, as the H8 requires.
+        """
+        self.code += bytes.fromhex("020a01006b80") + address.to_bytes(2, "big")
+        for offset in (4, 5):
+            self.code += bytes.fromhex("6a8a") + (address + offset).to_bytes(2, "big")
+
     def lcd(self, data: bool, values: list[int]) -> None:
         for value in values:
             self.byte(0xFFD4, 6 if data else 4)

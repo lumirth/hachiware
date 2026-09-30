@@ -40,8 +40,12 @@ def compare(expected: dict, report: dict, output: Path) -> list[str]:
             wanted = bytes.fromhex(text)
             actual = data[offset : offset + len(wanted)]
             if actual != wanted:
+                differences = [i for i, (a, b) in enumerate(zip(actual, wanted)) if a != b]
+                first = differences[0]
                 failures.append(
-                    f"{domain}[{address}]: expected {wanted.hex()}, got {actual.hex()}"
+                    f"{domain}[{start + offset + first:04x}]: expected {wanted[first]:02x}, "
+                    f"got {actual[first]:02x}; first difference in block {address}, "
+                    f"offset {first}, {len(differences)} of {len(wanted)} bytes differ"
                 )
     for key in expected.keys() & SCALARS:
         actual = report[key]

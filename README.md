@@ -27,7 +27,9 @@ without executing it. Build an emulator executable separately before running cas
 Every output directory must be new. The runner writes `results.json`, records the
 suite checkout, adapter and executable identities, and checks fixture hashes before
 execution. Failures retain observations, stdout, stderr and the exact command under
-`cases/NAME/` in the run directory. `--keep-passed` retains successful runs too.
+`cases/NAME/` in the run directory. A storage mismatch reports the first differing
+byte's address, expected and observed values, its offset within the expected block,
+and the number of differing bytes. `--keep-passed` retains successful runs too.
 `--timeout SECONDS` controls the wall time allowed for each adapter invocation.
 These durations include process startup and export; use an emulator's benchmark tools
 for performance measurements.
@@ -50,6 +52,13 @@ unsupported inputs and mismatched conditions explain why a case cannot run.
 observations, duration, conditions and explanation beside its definition. Share narrow
 instruction encoders through `cases/h8.py`. A module can generate related cases from
 a table. Register a new module in `cases/__init__.py`.
+
+Arithmetic, multiplication and division cases store six-byte records starting at `0xf800`.
+Each contains the big-endian ER0 result and two copies of CCR captured before stores
+change it. The duplicate byte keeps every longword store at an even address.
+Divide a reported block offset by six to find the record index, then follow the
+case generator's operand order. A completion byte at `0xff20` distinguishes completed
+programs from partially written results.
 
 A `Case` records the program, expected values, optional input timeline, and evidence.
 Use `conditions` for numerical assumptions that affect the result, such as the reset
