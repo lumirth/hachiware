@@ -56,6 +56,7 @@ def cases():
     )
 
     p = Program()  # reset CCR.I remains set
+    p.byte(0xF782, 0x5A)  # Reached the transition.
     p.byte(0xFFF0, 0xAF)
     p.byte(0xFFF1, 0xEB)
     p.code += bytes.fromhex("0180")
@@ -64,7 +65,7 @@ def cases():
     yield Case(
         "direct-clock-masked",
         image,
-        {"ram": {"f780": "0000"}, "interrupt_entries": 0},
+        {"ram": {"f780": "00005a"}, "interrupt_entries": 0},
         None,
         evidence=basis,
     )

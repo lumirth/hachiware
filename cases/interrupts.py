@@ -19,13 +19,14 @@ def cases():
         if nop:
             p.code += bytes.fromhex("0000")
         p.code += bytes.fromhex("38f66a08fff66a88f800")
+        p.byte(0xF801, 0xA5)  # The flag was read.
         name = "irq-mux-" + (
             "high" if high else "settled" if nop else "immediate-clear"
         )
         yield Case(
             name,
             p.finish(),
-            {"ram": {"f800": "00" if nop or high else "01"}},
+            {"ram": {"f800": ("00" if nop or high else "01") + "a5"}},
             f"0,analog,pb0,{3000 if high else 0}\n",
             evidence=basis,
         )

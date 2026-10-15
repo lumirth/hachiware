@@ -64,6 +64,24 @@ def cases():
             (0xFFDC, 1),
         ]:
             p.byte(a, v)
+        if name == "eeprom-power-before-cs":
+            # A committed control write shows that the program reached the
+            # aborted one. Poll the status register until WIP clears.
+            p.byte(0xFFD4, 1)
+            p.send(6)
+            p.byte(0xFFD4, 5)
+            p.byte(0xFFD4, 1)
+            for byte in (2, 0, 0x40, 0x5A):
+                p.send(byte)
+            p.byte(0xFFD4, 5)
+            poll = len(p.code)
+            p.byte(0xFFD4, 1)
+            p.send(5)
+            p.send(0)
+            p.code += bytes.fromhex("0c89")  # MOV.B R0L,R1L keeps the status.
+            p.byte(0xFFD4, 5)
+            p.code += bytes.fromhex("7309")  # BTST #0,R1L: write in progress.
+            p.code += bytes((0x46, (poll - len(p.code) - 2) & 255))
         p.byte(0xFFD4, 1)
         p.send(6)
         p.byte(0xFFD4, 5)
@@ -87,9 +105,10 @@ def cases():
                 "nv_commits": 1 if name == "eeprom-wel-during-write" else 0,
             }
         elif name == "eeprom-power-before-cs":
-            timeline = "1000,power,0\n"
-            expected = {"eeprom": {"0020": "ff"}, "nv_commits": 0}
+            timeline = "20000,power,0\n"
+            expected = {"eeprom": {"0020": "ff", "0040": "5a"}, "nv_commits": 1}
         else:
             timeline = "1000,reset,0\n"
             expected = {"eeprom": {"0020": "a5"}, "nv_commits": 1}
-        yield Case(name, p.finish(), expected, timeline, evidence=basis)
+        yield Case(name, p.finish(), expected, timeline, evidence=basis,
+                   milliseconds=30 if name == "eeprom-power-before-cs" else 8)

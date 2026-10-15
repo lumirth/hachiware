@@ -1,8 +1,10 @@
 """Arithmetic at carry, half-carry and signed-range boundaries.
 
 The integer oracle uses unbounded arithmetic and signed representability. Programs
-capture all of ER0 and CCR before reporting changes the flags. This also checks
-that byte and word results preserve their other register lanes.
+record ER0 and the N, Z, V and C flags through the branch decoder, so these
+cases depend on conditional branches but not on STC. This also checks that byte
+and word results preserve their other register lanes. The half-carry flag is
+visible only through STC, so the ``arithmetic-h-*`` cases check it separately.
 """
 
 from itertools import product
@@ -68,12 +70,37 @@ def cases():
                 p.code += bytes.fromhex("7a01") + b.to_bytes(4, "big")
                 p.code += bytes((7, incoming)) + bytes.fromhex(opcode)
                 address = 0xF800 + len(observations)
-                p.record_er0_ccr(address)
+                p.record_er0_flags(address)
                 result, flags = expected(operation, bits, a, b, incoming)
-                observations += result.to_bytes(4, "big") + bytes((flags, flags))
+                observations += result.to_bytes(4, "big") + bytes((flags & 15, flags & 15))
             p.byte(0xFF20, 0xA5)
             yield Case(
                 f"arithmetic-{operation}-{bits}-{start // 300}", p.finish(),
                 {"ram": {"f800": observations.hex(), "ff20": "a5"}}, None,
                 evidence=basis, milliseconds=20,
             )
+
+    basis = {
+        **basis,
+        "question": "Does H follow the carry or borrow out of bit 3, 11 or 27, as STC reads "
+                    "back the whole CCR, while the other bits match the arithmetic cases?",
+        "limitation": "Operands are limited to the half-carry boundaries.",
+    }
+    for operation, bits, opcode in OPERATIONS:
+        half = 1 << (bits - 4)
+        values = (0, 1, half - 1, half, (1 << bits) - 1)
+        p, observations = Program(), bytearray()
+        for a, b, incoming in product(values, values, (0, 0xFF)):
+            initial = (0xA5C35A96 & ~((1 << bits) - 1)) | a
+            p.code += bytes.fromhex("7a00") + initial.to_bytes(4, "big")
+            p.code += bytes.fromhex("7a01") + b.to_bytes(4, "big")
+            p.code += bytes((7, incoming)) + bytes.fromhex(opcode)
+            p.record_er0_ccr(0xF800 + len(observations))
+            result, flags = expected(operation, bits, a, b, incoming)
+            observations += result.to_bytes(4, "big") + bytes((flags, flags))
+        p.byte(0xFF20, 0xA5)
+        yield Case(
+            f"arithmetic-h-{operation}-{bits}", p.finish(),
+            {"ram": {"f800": observations.hex(), "ff20": "a5"}}, None,
+            evidence=basis, milliseconds=10,
+        )

@@ -215,6 +215,7 @@ def cases():
         p.send(0x88)
         p.byte(0xFFDC, 1)  # Unshadowed MSB reads.
         p.byte(0xF800, 0)
+        p.byte(0xF801, 0xA5)  # Configuration completed.
         p.code += bytes.fromhex("79020200")  # Poll through the pulse's decay.
         loop = len(p.code)
         p.byte(0xFFDC, 0)
@@ -231,7 +232,7 @@ def cases():
         yield Case(
             "sensor-between-conversion-" + ("pulse" if pulse else "control"),
             p.finish(),
-            {"ram": {"f800": "01" if pulse else "00"}},
+            {"ram": {"f800": "01a5" if pulse else "00a5"}},
             timeline,
             evidence=basis,
             conditions=conditions,

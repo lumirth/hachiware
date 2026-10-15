@@ -2,7 +2,7 @@
 
 from diagnostic import Case
 
-from .h8 import Program
+from .h8 import FLAGS, Program
 
 
 def cases():
@@ -31,24 +31,26 @@ def cases():
     p = Program()
     # GNU gas movlh.s / h8300.exp golden bytes, also MOV.L manual p.127.
     p.code += bytes.fromhex("7a010000f8007a0011223344010078906ba000000020")
-    p.code += bytes.fromhex("02096a89f800")
+    p.byte(0xF800, 0xA5)
     yield Case(
         "long-displacement-store",
         p.finish(),
-        {"ram": {"f800": "80", "f820": "11223344"}},
+        {"ram": {"f800": "a5", "f820": "11223344"}},
         None,
         evidence=basis,
     )
 
     basis = {
         "kind": "documented",
-        "source": "H8/300H software manual REJ09B0213-0300, ADD.B and STC instructions",
-        "question": "Does 0x80 + 0x80 produce zero with H=0, N=0, Z=1, V=1 and C=1?",
+        "source": "H8/300H software manual REJ09B0213-0300, ADD.B and Bcc instructions",
+        "question": "Does 0x80 + 0x80 produce zero with N=0, Z=1, V=1 and C=1?",
     }
     p = Program()
-    p.code += bytes.fromhex("f880888002096a88f8006a89f801")
+    p.code += bytes.fromhex("f8808880")
+    p.flags_r2l()
+    p.code += bytes.fromhex("6a88f8006a8af801")
     yield Case(
-        "add-byte-flags", p.finish(), {"ram": {"f800": "0087"}}, None, evidence=basis
+        "add-byte-flags", p.finish(), {"ram": {"f800": "0007"}}, None, evidence=basis
     )
 
     basis = {
@@ -166,12 +168,13 @@ def cases():
         if signed:
             p.code += bytes.fromhex("01d0")
         p.code += bytes.fromhex("5301" if word else "5181")
-        p.code += bytes.fromhex("020a6a8a") + (0xF800 + index).to_bytes(2, "big")
+        p.flags_r2l()
+        p.code += bytes.fromhex("6a8a") + (0xF800 + index).to_bytes(2, "big")
     p.byte(0xF820, 0xA5)
     yield Case(
         "division-flags-and-continuation",
         p.finish(),
-        {"ram": {"f800": bytes(row[4] for row in divisions).hex(), "f820": "a5"}},
+        {"ram": {"f800": bytes(row[4] & 15 for row in divisions).hex(), "f820": "a5"}},
         None,
         evidence=basis,
     )
@@ -215,10 +218,11 @@ def branch_cases():
                 for flags in range(16):
                     address = 0xF800 + len(expected)
                     ccr = 0xF0 | flags
-                    store_false = bytes.fromhex("020a6a88") + address.to_bytes(2, "big")
-                    store_true = bytes.fromhex("020a6a89") + address.to_bytes(2, "big")
+                    decode = bytes.fromhex("5e00") + FLAGS.to_bytes(2, "big")
+                    store_false = decode + bytes.fromhex("6a88") + address.to_bytes(2, "big")
+                    store_true = decode + bytes.fromhex("6a89") + address.to_bytes(2, "big")
                     size = 2 if width == 8 else 4
-                    displacement = -(10 + size) if backward else 8
+                    displacement = -(12 + size) if backward else 10
                     branch = (
                         bytes((0x40 | condition, displacement & 255))
                         if width == 8
@@ -227,15 +231,16 @@ def branch_cases():
                     )
                     if backward:
                         p.code += (
-                            bytes((0x40, 8)) + store_true + bytes((0x40, 8 + size))
+                            bytes((0x40, 10)) + store_true + bytes((0x40, 10 + size))
                         )
                         p.code += bytes((0x07, ccr)) + branch + store_false
                     else:
                         p.code += bytes((0x07, ccr)) + branch + store_false
-                        p.code += bytes((0x40, 6)) + store_true
-                    # Both paths capture CCR before their result store changes it.
+                        p.code += bytes((0x40, 8)) + store_true
+                    # Both paths decode NZVC before their result store changes it.
                     p.code += bytes.fromhex("6a8a") + (address + 1).to_bytes(2, "big")
-                    expected.extend((0x22 if mask & (1 << flags) else 0x11, ccr))
+                    expected.extend((0x22 if mask & (1 << flags) else 0x11, flags))
+            p.uses_flags = True
             p.byte(0xFA00, 0xA5)
             yield Case(
                 f"branch-{width}-{'backward' if backward else 'forward'}",

@@ -46,9 +46,10 @@ def cases():
         "source": "REJ09B0213-0300 §§2.2.38–39 pp.130–133; §1.4 register configuration: "
                   "https://www.renesas.com/en/document/mah/h8300h-series-software-manual",
         "question": "Do byte/word products use the documented operand slices, preserve untouched "
-                    "register lanes, and change only the MULXS N/Z flags while MULXU preserves CCR?",
+                    "register lanes, and change only the MULXS N/Z flags while MULXU preserves N, Z, V and C?",
         "limitation": "Boundary operands include zero and both signs. This is not an exhaustive "
-                      "operand enumeration and does not measure instruction timing.",
+                      "operand enumeration and does not measure instruction timing. Flags are "
+                      "read with conditional branches; H, U and I are not observed.",
     }
     for bits, layouts in LAYOUTS.items():
         limit, sign = 1 << bits, 1 << (bits - 1)
@@ -67,7 +68,7 @@ def cases():
                 if signed:
                     p.code += bytes.fromhex("01c0")
                 p.code += bytes((0x50 if bits == 8 else 0x52, source << 4 | destination))
-                p.record_er0_ccr(0xF800 + len(observations))
+                p.record_er0_flags(0xF800 + len(observations))
                 left, right = a, b
                 if signed:
                     left, right = (v if v < sign else v - limit for v in (a, b))
@@ -81,7 +82,7 @@ def cases():
                         result = result << 16 | (er0 & 0xFFFF)
                     else:
                         result |= er0 & 0xFFFF0000
-                observations += result.to_bytes(4, "big") + bytes((flags, flags))
+                observations += result.to_bytes(4, "big") + bytes((flags & 15, flags & 15))
             p.byte(0xFF20, 0xA5)
             yield Case(
                 f"multiply-{'signed' if signed else 'unsigned'}-{bits}-{layout}", p.finish(),

@@ -23,10 +23,11 @@ def cases():
     }
     # Entry count lives in retained RAM. These physical conditions distinguish
     # a paused CPU, RES re-entry with retained RAM, and volatile charge loss.
+    # RAM contents after retention is lost are undefined, so no case expects a
+    # particular value after a loss.
     for name, absence, expected in [
         ("short-retention", 1000, 1),
         ("reset-retention", 5000, 2),
-        ("long-collapse", 20000, 1),
     ]:
         p = Program()
         p.code += bytes.fromhex("6a08f8000a086a88f800")
@@ -41,7 +42,7 @@ def cases():
             conditions=conditions,
         )
     for mv, duration in [(0, 10000), (1000, 30000)]:
-        for delta, expected in [(-1000, "a5"), (1000, "00")]:
+        for delta, expected in [(-1000, "a5")]:
             p = Program()
             p.byte(0xF800, 0xA5)
             # Observe while still below execution voltage; no reboot rewrites RAM.
