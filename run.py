@@ -193,6 +193,14 @@ def describe(command: list[str], directory: Path, timeout: float) -> dict:
             raise ValueError(f"adapter must list available {key}")
     if not isinstance(caps.get("conditions"), dict):
         raise ValueError("adapter must describe its configured conditions")
+    # Optional: inputs the adapter converts in place of the core, each with a
+    # description of the work it does. Speed results using them are assisted.
+    assists = caps.setdefault("assists", {})
+    if not isinstance(assists, dict) or any(
+        not isinstance(k, str) or not isinstance(v, str) or k not in caps["inputs"]
+        for k, v in assists.items()
+    ):
+        raise ValueError("adapter assists must map its inputs to descriptions")
     return caps
 
 
@@ -223,6 +231,7 @@ def run_case(
     if case["input"]:
         command += ["--input", str(fixtures / case["input"])]
     started = time.monotonic()
+    execution_completed = False
     try:
         returncode = invoke(command, directory, timeout)
         if returncode and not (output / "observations.json").is_file():
@@ -238,6 +247,11 @@ def run_case(
                     f"adapter exited with status {returncode} after reporting completion"
                 )
             status = "fail" if failures else "pass"
+            execution_completed = (
+                returncode == 0
+                and report.get("completed") is True
+                and report.get("fault") is None
+            )
     except (
         OSError,
         ValueError,
@@ -250,6 +264,7 @@ def run_case(
         "status": status,
         "failures": failures,
         "wall_seconds": time.monotonic() - started,
+        "execution_completed": execution_completed,
     }
     if status == "pass" and not keep_passed:
         shutil.rmtree(directory)

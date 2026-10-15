@@ -38,10 +38,11 @@ def cases():
                   "diagram/example on pp.92/96: "
                   "https://www.renesas.com/en/document/mah/h8300h-series-software-manual",
         "question": "Do representable byte/word divisions put quotient and remainder in the "
-                    "documented lanes, preserve untouched lanes and CCR bits, and set N "
+                    "documented lanes, preserve untouched lanes and the V and C flags, and set N "
                     "from operand signs even for a signed quotient truncated to zero?",
         "limitation": "No result-bit expectation for zero divisors or quotient overflow. "
-                      "These programs do not measure instruction timing.",
+                      "These programs do not measure instruction timing. Flags are read with "
+                      "conditional branches; H, U and I are not observed.",
     }
     for bits, signed, upper in product((8, 16), (False, True), (False, True)):
         p, observations = Program(), bytearray()
@@ -64,7 +65,7 @@ def cases():
             if signed:
                 p.code += bytes.fromhex("01d0")
             p.code += bytes((0x51 if bits == 8 else 0x53, source << 4 | destination))
-            p.record_er0_ccr(0xF800 + len(observations))
+            p.record_er0_flags(0xF800 + len(observations))
             # Integer magnitudes avoid Python's negative floor-division rule.
             quotient = abs(dividend) // abs(divisor)
             negative = (dividend < 0) != (divisor < 0) if signed else divisor >= sign
@@ -79,7 +80,7 @@ def cases():
                 else:
                     result |= er0 & 0xFFFF0000
             flags = (incoming & ~0x0C) | (8 if negative else 0)
-            observations += result.to_bytes(4, "big") + bytes((flags, flags))
+            observations += result.to_bytes(4, "big") + bytes((flags & 15, flags & 15))
         p.byte(0xFF20, 0xA5)
         layout = ("e0" if upper else "r0") if bits == 8 else ("e1" if upper else "r1")
         yield Case(

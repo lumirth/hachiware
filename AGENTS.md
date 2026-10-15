@@ -6,10 +6,16 @@ for expectations. Never obtain expected values from the emulator under test.
 
 Write cases in hardware terms. Prefer small guest programs and literal expected
 results; generate combinations when that is clearer. Keep emulator adapters in
-their own projects. Do not consult past HachiStep implementations.
+their own projects; `adapters/pocketwalker/` exists only because PocketWalker has
+none. Do not consult past HachiStep implementations.
 
-Run `uv run -m unittest discover -s tests` after changing the builder or runner.
-Run affected diagnostics through the available adapter after changing cases.
+Do not add unit, integration, tautological or change-detector tests. Test by
+running cases and workloads end to end through an adapter. After changing a case
+or workload, run it through an available adapter and run `bench.py audit` on it;
+every check must fail its controls. A benchmark change must not favor an emulator
+or an implementation technique: workloads take their data from the seed, observe
+only memory every adapter exports, and report every speed beside its check
+result; only fully verified groups get a verified figure.
 Keep sources, conditions and expectations beside the case they explain.
 Separate documented behavior from reasoned inference in each case's evidence metadata.
 
