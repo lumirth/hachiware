@@ -20,6 +20,7 @@ MODULES = (
     "instruction_timing",
     "interrupts",
     "lcd",
+    "lcd_voltage",
     "logic",
     "multiply",
     "poll",
