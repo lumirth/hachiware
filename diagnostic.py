@@ -15,6 +15,8 @@ STORAGE = {
     "lcd": (0, 4096),
     "icons": (0, 256),
     "pixels": (0, 6144),
+    "lcd_supply": (0, 28),
+    "lcd_drive": (0, 1028),
 }
 
 

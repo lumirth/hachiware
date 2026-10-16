@@ -13,7 +13,7 @@ REGISTER_EVIDENCE = {
 }
 
 
-def cases():
+def register_cases():
     basis = REGISTER_EVIDENCE
     for name, enable, expected, timeline in [
         ("sensor-low-g", 1, "0a00", "0,accel,0,0,0\n"),
@@ -346,3 +346,50 @@ def cases():
         None,
         evidence=basis,
     )
+
+
+def wake_cases():
+    basis = {
+        "kind": "software_reasoned",
+        "source": "Bosch BMA150 Rev1.6 §7.3 p.47; Renesas H8/38602R instruction timing appendix",
+        "question": "Does unfiltered automatic wake omit filter fill, while filtered acquisition "
+                    "and any-motion retain their required history?",
+        "limitation": "Nominal wake timing from Bosch's approximate formula. Guest NOP delays "
+                      "sample safely between scan boundaries at the board's 3.6864 MHz clock.",
+    }
+    for name, bandwidth, motion, delay_nops, expected in [
+        ("unfiltered-before", 6, False, 1500, "02"),
+        ("unfiltered-after", 6, False, 2028, "ff"),
+        ("filtered-before", 5, False, 2028, "02"),
+        ("filtered-after", 5, False, 4056, "ff"),
+        ("motion-before", 6, True, 2028, "02"),
+        ("motion-after", 6, True, 4056, "ff"),
+    ]:
+        p = Program()
+        for a, v in [(0xFFFB, 0x14), (0xF0E0, 0x8C), (0xF0E1, 0x40),
+                     (0xF0E2, 0x86), (0xF0E3, 0xC0), (0xFFE4, 7),
+                     (0xFFD4, 5), (0xF087, 8), (0xFFEC, 1), (0xFFDC, 1)]:
+            p.byte(a, v)
+        # Start after power-up, then sleep and wake explicitly with automatic
+        # verification enabled. Zero acceleration cannot meet high-g threshold.
+        p.code += bytes(12000)
+        for a, v in [(0x0b, 0x40 if motion else 2), (0x0e, 255),
+                     (0x10, 255), (0x14, bandwidth),
+                     (0x15, 0xc1 if motion else 0x81), (0x0a, 1), (0x0a, 0)]:
+            p.byte(0xffdc, 0)
+            p.send(a)
+            p.send(v)
+            p.byte(0xffdc, 1)
+        p.code += bytes(2 * delay_nops)
+        p.byte(0xffdc, 0)
+        p.send(0x80)
+        p.send(0)
+        p.code += bytes.fromhex("6a88f800")
+        p.byte(0xffdc, 1)
+        yield Case("sensor-wake-" + name, p.finish(), {"ram": {"f800": expected}},
+                   "0,accel,0,0,0\n", evidence=basis, milliseconds=12)
+
+
+def cases():
+    yield from register_cases()
+    yield from wake_cases()

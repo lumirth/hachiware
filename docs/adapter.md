@@ -34,6 +34,8 @@ that representation.
 | `lcd` | `lcd.bin`, 4,096 bytes in controller RAM order. |
 | `icons` | `icons.bin`, 256 icon plane bytes with DB0 only. |
 | `pixels` | `pixels.bin`, 96 by 64 averaged PWM/FRC drive values in row order. Scale the programmed palette duty to 0..255 and round to the nearest integer. Zero is inactive; 255 is full drive. Apply current RAM and geometry, without glass response or tint. |
+| `lcd_supply` | `lcd_supply.bin`, seven little-endian `u32` microvolt values relative to VSS2: regulator target, pump, V0, V1, V2, V3, V4. `0xffffffff` marks a level not internally driven within documented operating conditions. |
+| `lcd_drive` | `lcd_drive.bin`, 257 little-endian `u32` microvolt values relative to VSS2: COM0..128, then SEG0..127 at the observation endpoint. `0xffffffff` marks an unavailable level. |
 | `er0` | Unsigned 32-bit CPU register value. |
 | `sleeping`, `display_on` | Boolean values. |
 | `display_start` | LCD start line from 0 to 127. |
