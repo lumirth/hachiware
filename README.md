@@ -3,12 +3,8 @@
 # hachiware
 
 hachiware is a hardware diagnostic and benchmarking suite for Pokéwalker emulators.
-Its guest programs pair hardware experiments with expected results and the evidence
-behind them. The same experiments run across emulators through adapters.
-
-The benchmark report shows every workload's speed beside its correctness result,
-including speeds for workloads that fail. Firmware sessions check saved-state
-continuation, gameplay, and peer exchange.
+It is the sister project of [hachistep](https://github.com/lumirth/hachistep),
+an accurate and performant Pokéwalker emulator core.
 
 [Compare hachistep and PocketWalker](docs/benchmark.md) ·
 [Run diagnostics](docs/diagnostics.md) · [Run firmware sessions](docs/sessions.md)
