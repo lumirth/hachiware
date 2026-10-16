@@ -95,14 +95,14 @@ with `--session` and the following operations:
 
 | Argument | Operation |
 | --- | --- |
-| `--load-state FILE` | Resume a capture instead of supplying firmware and EEPROM. Horizons and input timestamps remain absolute. |
+| `--load-state FILE` | Resume a capture instead of supplying firmware and EEPROM. Endpoints and input timestamps remain absolute. |
 | `--history` | Record the complete event history. |
 | `--chunk-us N` | Bound individual host execution calls to N microseconds. |
 | `--write-ram ADDRESS:HEX` | Edit guest RAM before execution. Repeatable; ADDRESS is hexadecimal. |
 | `--audio` | Export `audio.wav` as mono 48 kHz signed PCM16. |
 | `--peer-eeprom FILE --peer-input CSV --delay-us N` | Run a second device with the same firmware, exchanging optical levels with N microseconds of propagation delay. Export its observations under `peer/`. |
 
-The horizon can be zero for initial inspection. The adapter writes `session.json`:
+The endpoint can be zero for initial inspection. The adapter writes `session.json`:
 
 - `fault`: a description or null.
 - `start_raw`, `end_raw`, `requested_raw`: decimal strings in unsigned 64.64 seconds.

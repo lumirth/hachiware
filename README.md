@@ -1,3 +1,5 @@
+<img src="docs/images/icon.svg" alt="hachiware" width="128">
+
 # hachiware
 
 hachiware is a hardware diagnostic and benchmarking suite for Pokéwalker emulators.
@@ -18,6 +20,3 @@ With Python 3.10 or newer, list the ADC cases and their sources:
 ```sh
 uv run build.py --list --case 'adc-*'
 ```
-
-[Add an experiment](docs/contributing.md) · [Connect an emulator](docs/adapter.md) ·
-[Issues](https://github.com/lumirth/hachiware/issues) · [MIT license](LICENSE)
