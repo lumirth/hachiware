@@ -13,6 +13,7 @@ def cases():
     }
     for name in [
         "lcd-bitplanes",
+        "lcd-column-overflow",
         "lcd-segment-reversal",
         "lcd-duty-override",
         "lcd-icon-reset",
@@ -39,6 +40,11 @@ def cases():
         if name == "lcd-bitplanes":
             p.lcd(True, [1, 0, 0, 1, 1, 1])
             expected = {"pixels": {"0000": "aa55ff00"}, "display_on": True}
+        elif name == "lcd-column-overflow":
+            p.lcd(True, [0xAA, 0x55])
+            p.lcd(False, [0x17, 0x0F])
+            p.lcd(True, [0x11, 0x22, 0x33, 0x44])
+            expected = {"lcd": {"0000": "aa55", "00fe": "11"}}
         elif name == "lcd-segment-reversal":
             p.lcd(False, [0x17, 0x0D, 0xA1])
             p.lcd(True, [1, 1, 0, 1, 1, 0])
@@ -73,4 +79,12 @@ def cases():
                 "display_on": True,
                 "display_start": 0,
             }
-        yield Case(name, p.finish(), expected, None, evidence=basis)
+        evidence = basis
+        if name == "lcd-column-overflow":
+            evidence = {
+                "kind": "software_reasoned",
+                "source": "NT7508 V1.0 pp.15–16,33,35; pw off-panel sprite writes and retail walking behavior",
+                "question": "Do writes beyond the last LCD byte leave the start of the page intact?",
+                "limitation": "Nonwrapping follows the register description and retail drawing behavior. Terminal-byte updates are not asserted.",
+            }
+        yield Case(name, p.finish(), expected, None, evidence=evidence)
