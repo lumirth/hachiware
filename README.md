@@ -2,7 +2,8 @@
 
 Hachiware benchmarks Pokéwalker emulators for hardware conformance and speed. It runs
 original H8 guest programs against documented hardware behavior, then measures
-representative use and sustained CPU, LCD, EEPROM, and infrared workloads.
+representative use and sustained CPU, LCD, EEPROM, and infrared workloads. Supplied
+firmware sessions exercise gameplay, persistence and reproducible execution.
 
 Every speed appears beside its correctness result. Comparisons include raw timings for
 targets that fail checks, so you can compare speed while seeing what still needs work.
@@ -42,6 +43,18 @@ Failures retain observations and command logs under `cases/NAME/`; `--keep-passe
 also retains successful exports. A storage mismatch identifies the first differing
 byte. Exit status is 0 for all passed, 1 for a failed check or runner, and 2 for
 incomplete expectations or applicability.
+
+## Run firmware sessions
+
+```sh
+uv run session.py --firmware firmware.bin --eeprom eeprom.bin --quick --chunk-us 1000 \
+  --out out/sessions-1 \
+  --target hachistep ../hachistep/tools/hachiware_adapter.py ../hachistep/target/release/hachistep
+```
+
+The [session guide](docs/sessions.md) covers gameplay, peer exchange, save-state
+continuation and end-to-end comparisons between builds. Firmware and EEPROM images
+are supplied by the caller.
 
 ## Add coverage
 
